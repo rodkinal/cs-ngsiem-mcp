@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ngsiem": {
+      "command": "/bin/bash",
+      "args": [
+        "-c",
+        "cd /Users/rod/cs-ngsiem-mcp && source .venv/bin/activate && python ngsiem_mcp_server.py"
+      ]
+    }
+  }
+}
