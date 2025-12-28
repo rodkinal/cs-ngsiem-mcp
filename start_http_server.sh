@@ -35,14 +35,35 @@ fi
 
 # Kill any existing uvicorn processes
 echo ""
-echo "Checking for existing uvicorn processes..."
+# Kill any existing uvicorn processes or port blockers
+echo ""
+echo "Checking for existing processes..."
+
+# Strategy 1: Kill by name
 if pgrep -f "uvicorn ngsiem_mcp_http" > /dev/null; then
     echo -e "${YELLOW}⚠${NC}  Found existing uvicorn process(es), killing..."
     pkill -9 -f "uvicorn ngsiem_mcp_http" || true
-    sleep 1
+    SLEEP_NEEDED=true
+fi
+if pgrep -f "python ngsiem_mcp_http.py" > /dev/null; then
+    echo -e "${YELLOW}⚠${NC}  Found existing python process(es), killing..."
+    pkill -9 -f "python ngsiem_mcp_http.py" || true
+    SLEEP_NEEDED=true
+fi
+
+# Strategy 2: Kill by port (requires lsof)
+PORT=${MCP_HTTP_PORT:-8080}
+if lsof -i :$PORT > /dev/null 2>&1; then
+    echo -e "${YELLOW}⚠${NC}  Port $PORT is in use, killing process..."
+    lsof -ti :$PORT | xargs kill -9 || true
+    SLEEP_NEEDED=true
+fi
+
+if [ "$SLEEP_NEEDED" = true ]; then
+    sleep 2
     echo -e "${GREEN}✓${NC} Old processes terminated"
 else
-    echo -e "${GREEN}✓${NC} No existing processes found"
+    echo -e "${GREEN}✓${NC} System clean"
 fi
 
 # Activate virtual environment

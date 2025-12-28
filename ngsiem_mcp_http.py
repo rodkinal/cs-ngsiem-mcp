@@ -36,6 +36,14 @@ from config import load_config
 from ngsiem_tools import NGSIEMSearchTools, create_ngsiem_client
 from ngsiem_query_catalog import get_catalog
 from ngsiem_query_validator import get_validator
+from ngsiem_async_executor import run_blocking, cleanup_executor
+from ngsiem_sync_operations import (
+    execute_search_and_wait,
+    execute_start_search,
+    execute_get_search_status,
+    execute_stop_search,
+    execute_get_repo_fieldset,
+)
 
 # Configure logging
 app_log_file = os.environ.get("MCP_HTTP_APP_LOG", "ngsiem_http_app.log")
@@ -86,9 +94,12 @@ class JsonRpcResponse(BaseModel):
     result: Any = None
     error: Optional[dict[str, Any]] = None
     
+    model_config = {"json_encoders": {}}  # Pydantic v2 config
+    
     def dict(self, **kwargs):
-        """Override dict to ensure only result OR error is present."""
-        d = super().dict(**kwargs)
+        """Override dict to ensure proper JSON serialization."""
+        # Use model_dump with mode='json' to convert AnyUrl and other types
+        d = self.model_dump(mode='json', **kwargs)
         # JSON-RPC spec: only one of result/error should be present
         if d.get('error') is None and 'result' in d:
             d.pop('error', None)
@@ -142,6 +153,10 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
     for stream in app.state.active_sse_streams:
         stream.cancel()
+    
+    # Cleanup thread pool executor
+    cleanup_executor()
+    
     logger.info("Shutdown complete")
 
 
@@ -437,18 +452,29 @@ async def handle_list_tools() -> dict:
 
 
 async def handle_tool_call(params: dict) -> dict:
-    """Execute an MCP tool."""
+    """
+    Execute an MCP tool.
+    
+    Routes blocking operations (NGSIEM API calls) to a thread pool
+    to prevent event loop blocking during concurrent requests.
+    
+    Args:
+        params: Tool call parameters with 'name' and 'arguments'.
+        
+    Returns:
+        dict: Tool result with 'content' and 'isError' fields.
+        
+    Raises:
+        ValueError: If tool name is missing or unknown.
+    """
     tool_name = params.get("name")
     arguments = params.get("arguments", {})
     
     if not tool_name:
         raise ValueError("Tool name is required")
     
-    from ngsiem_mcp_stdio import call_tool
-    from mcp.types import CallToolRequest
-    
-    # Create proper CallToolRequest
-    result = await call_tool(tool_name, arguments)
+    # Execute tool (blocking ops go to thread pool)
+    result = await _execute_tool_async(tool_name, arguments)
     
     return {
         "content": result.content if hasattr(result, 'content') else [{"type": "text", "text": str(result)}],
@@ -456,19 +482,60 @@ async def handle_tool_call(params: dict) -> dict:
     }
 
 
+async def _execute_tool_async(tool_name: str, arguments: dict):
+    """
+    Route tool execution to appropriate handler.
+    
+    Blocking I/O operations (NGSIEM API calls via FalconPy) are executed
+    in a thread pool to prevent blocking the asyncio event loop.
+    
+    Args:
+        tool_name: Name of the MCP tool to execute.
+        arguments: Tool arguments dictionary.
+        
+    Returns:
+        Tool execution result (format varies by tool).
+        
+    Raises:
+        ValueError: If tool is unknown.
+    """
+    # Map of tools that require thread pool execution (blocking I/O)
+    blocking_tools: dict[str, callable] = {
+        "search_and_wait": execute_search_and_wait,
+        "start_search": execute_start_search,
+        "get_search_status": execute_get_search_status,
+        "stop_search": execute_stop_search,
+        "get_repo_fieldset": execute_get_repo_fieldset,
+    }
+    
+    if tool_name in blocking_tools:
+        # Execute in thread pool to avoid blocking event loop
+        func = blocking_tools[tool_name]
+        logger.debug(f"Executing blocking tool '{tool_name}' in thread pool")
+        return await run_blocking(func, **arguments)
+    
+    # Non-blocking tools (catalog, validator) - use existing MCP handlers
+    from ngsiem_mcp_stdio import call_tool
+    return await call_tool(tool_name, arguments)
+
+
 async def handle_list_resources() -> dict:
     """List available MCP resources."""
     from ngsiem_mcp_stdio import list_resources
     resources = await list_resources()
+    
+    # Handle both list and object with .resources attribute
+    resource_list = resources if isinstance(resources, list) else resources.resources
+    
     return {
         "resources": [
             {
-                "uri": r.uri,
+                "uri": str(r.uri),  # Convert AnyUrl to string
                 "name": r.name,
                 "description": r.description,
                 "mimeType": r.mimeType
             }
-            for r in resources.resources
+            for r in resource_list
         ]
     }
 

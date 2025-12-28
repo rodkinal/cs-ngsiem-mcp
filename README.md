@@ -459,6 +459,7 @@ graph LR
 | `MCP_HTTP_ACCESS_LOG` | Uvicorn Access Log Path | `ngsiem-mcp-http.log` | No |
 | `MCP_HTTP_APP_LOG` | Application Log Path | `ngsiem-mcp-app.log` | No |
 | `MCP_CORS_ORIGINS` | CORS Allowed Origins | `*` or `http://localhost:3000` | No |
+| `NGSIEM_THREAD_POOL_SIZE` | Max threads for blocking API calls | `4` | No |
 
 ### Regional Endpoints
 
@@ -530,42 +531,9 @@ LOG_LEVEL=DEBUG
 
 View logs:
 ```bash
-tail -f ngsiem_mcp.log
+tail -f ngsiem-mcp-http.log
+tail -f ngsiem-mcp-app.log
 ```
-
-## Testing
-
-### Manual Testing
-
-```bash
-# Test configuration loading
-python -c "from config import load_config; print(load_config())"
-
-# Test search initiation
-python test_api.py
-
-# Test result retrieval (use ID from previous test)
-python check_search.py <search_id>
-```
-
-### Example Queries
-
-| Use Case | NGSIEM Query |
-|----------|--------------|
-| User logon events | `#event_simpleName=*Logon* UserName=USERNAME` |
-| Process executions | `#event_simpleName=ProcessRollup2 FileName=PROCESS` |
-| Network connections | `#event_simpleName=NetworkConnectIP4 RemoteIP=IP_ADDRESS` |
-| DNS queries | `#event_simpleName=DnsRequest DomainName=DOMAIN` |
-
-
-
-## Future Enhancements
-
-- [ ] Async API calls with `asyncio.to_thread()`
-- [ ] Result caching
-- [x] Query builder assistant
-- [ ] Rate limiting
-- [ ] Exponential backoff retry logic
 
 ## Resources
 

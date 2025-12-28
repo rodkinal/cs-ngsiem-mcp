@@ -50,10 +50,12 @@ graph TB
     - **Protocol Versioning**: strict validation of `MCP-Protocol-Version` headers (defaults to 2025-11-25).
     - **Input Sanitization**: Pydantic models validate all JSON-RPC payloads.
 
-3.  **Concurrency**:
-    - Fully async implementation using `asyncio`.
-    - Non-blocking tool execution.
-    - SSE (Server-Sent Events) capability for long-running operations (optional).
+3.  **Concurrency & Thread Management**:
+    - **Async Architecture**: Fully async request handling using `asyncio`.
+    - **Blocking I/O Offloading**: Blocking FalconPy SDK calls are offloaded to a dedicated thread pool using `asyncio.to_thread()` / `loop.run_in_executor()`.
+    - **Thread Safety**: Uses `threading.local()` to maintain separate FalconPy client instances per thread, preventing race conditions in the synchronous SDK.
+    - **Configurable Resources**: Thread pool size is configurable via `NGSIEM_THREAD_POOL_SIZE` (default: 4) to balance concurrency vs resource usage.
+    - **SSE Capability**: Supports Server-Sent Events (SSE) for long-running operations and real-time updates.
 
 ## 2. Request Processing Flow
 
