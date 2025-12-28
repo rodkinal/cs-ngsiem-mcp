@@ -146,6 +146,28 @@ class BuildQueryArgs(BaseModel):
     )
 
 
+class GetRepoFieldsetArgs(BaseModel):
+    """
+    Arguments for repository field schema discovery.
+    
+    This tool is MANDATORY before constructing any search query.
+    The LLM must only use fields returned by this tool.
+    """
+    repository: Optional[str] = Field(
+        default=None,
+        description=(
+            "NGSIEM repository name. Uses default from config if not specified. "
+            "Must contain only alphanumeric characters, underscores, and hyphens."
+        )
+    )
+    timeout_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=120,
+        description="Maximum wait time for schema retrieval (1-120 seconds)"
+    )
+
+
 # =============================================================================
 # MCP RESOURCES
 # =============================================================================
@@ -303,6 +325,22 @@ async def list_tools() -> list[Tool]:
                 "Provide template name and parameters to generate a ready-to-execute query."
             ),
             inputSchema=BuildQueryArgs.model_json_schema()
+        ),
+        Tool(
+            name="get_repo_fieldset",
+            description=(
+                "MANDATORY FIRST STEP: Discover ALL available fields in a NGSIEM repository. "
+                "You MUST call this tool BEFORE constructing ANY search query. "
+                "Returns the complete list of valid field names for the specified repository. "
+                "\n\n"
+                "CRITICAL RULES FOR LLM AGENTS:\n"
+                "1. ONLY use field names returned by this tool in your queries\n"
+                "2. NEVER invent, guess, or hallucinate field names\n"
+                "3. If a user asks for a field not in this list, inform them it doesn't exist\n"
+                "\n"
+                "This prevents query failures from non-existent field references."
+            ),
+            inputSchema=GetRepoFieldsetArgs.model_json_schema()
         ),
     ]
 
@@ -656,6 +694,68 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                                 response_text += f"- `{param['name']}`: {param.get('description', '')}\n"
                     else:
                         response_text += "✅ Query is ready to execute with `search_and_wait` or `start_search`."
+        
+        elif name == "get_repo_fieldset":
+            args = GetRepoFieldsetArgs(**arguments)
+            
+            # Use default repository if not specified
+            repository = args.repository or CONFIG.default_repository
+            
+            if not repository:
+                return [TextContent(
+                    type="text",
+                    text=(
+                        "❌ **Repository Required**\n\n"
+                        "No repository specified and no default configured.\n"
+                        "Use `get_available_repositories` to see valid options."
+                    )
+                )]
+            
+            logger.info(f"[TOOL] Fetching fieldset for repository: {repository}")
+            
+            try:
+                result = ngsiem_client.get_repo_fieldset(
+                    repository=repository,
+                    timeout_seconds=args.timeout_seconds
+                )
+                
+                # Format response for LLM consumption
+                field_count = result.get('field_count', 0)
+                fields = result.get('fields', [])
+                
+                response_text = (
+                    f"🔍 **Repository Schema: {repository}**\n\n"
+                    f"**Total Fields:** {field_count}\n"
+                    f"**Retrieved At:** {result.get('retrieved_at', 'N/A')}\n\n"
+                )
+                
+                if result.get('warning'):
+                    response_text += f"⚠️ **Warning:** {result['warning']}\n\n"
+                
+                if fields:
+                    response_text += "## Available Fields\n\n"
+                    response_text += "```\n"
+                    # Display in columns for readability
+                    for i, field in enumerate(fields):
+                        response_text += f"{field}\n"
+                    response_text += "```\n\n"
+                    
+                    response_text += (
+                        "---\n"
+                        "⚠️ **IMPORTANT**: You MUST only use fields from this list in your queries.\n"
+                        "Do NOT invent or guess field names that are not listed above."
+                    )
+                else:
+                    response_text += (
+                        "_No fields returned. Verify the repository name is correct._"
+                    )
+                
+            except TimeoutError as e:
+                response_text = f"⏱️ **Timeout**\n\n{str(e)}"
+            except ValueError as e:
+                response_text = f"❌ **Validation Error**\n\n{str(e)}"
+            except RuntimeError as e:
+                response_text = f"❌ **API Error**\n\n{str(e)}"
         
         else:
             raise ValueError(f"Unknown tool: {name}")

@@ -2,23 +2,98 @@
 
 A Model Context Protocol (MCP) server that provides programmatic access to CrowdStrike NGSIEM search capabilities. This server enables MCP-compatible applications to execute security event searches through a standardized interface.
 
-## 🎯 Overview
+## Overview
 
-This MCP server exposes CrowdStrike NGSIEM functionality through eight tools, allowing any MCP client to perform threat hunting and security investigations programmatically.
+This MCP server exposes CrowdStrike NGSIEM functionality through **ten specialized tools** and **one resource**, allowing any MCP client to perform threat hunting, query building, and security investigations programmatically.
 
 ```mermaid
 graph LR
     A[MCP Client] -->|JSON-RPC| B[NGSIEM MCP Server]
     B -->|APIHarnessV2| C[CrowdStrike NGSIEM API]
+    B -->|Repositories| D[Config & Catalogs]
     C -->|Search Results| B
-    B -->|Formatted Response| A
+    D -->|Templates/Syntax| B
+    B -->|Enriched Response| A
     
     style A fill:#e1f5ff
     style B fill:#e8f5e9
     style C fill:#fce4ec
+    style D fill:#fff3e0
 ```
 
-## 🏗️ Architecture
+## Quick Start
+
+### Prerequisites
+
+- Python 3.13+
+- CrowdStrike API credentials with NGSIEM scope
+- MCP-compatible client application
+
+### Installation
+
+1. **Clone and setup environment**:
+   ```bash
+   cd /path/to/cs-ngsiem-mcp
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. **Configure Environment Variables**:
+   
+   Create a `.env` file in the root directory:
+   ```bash
+   cp .env.example .env
+   ```
+
+   Add your CrowdStrike API credentials (ensure `NGSIEM` and `Falcon Data Replicator` scopes are enabled):
+   ```ini
+   #.env
+   CROWDSTRIKE_CLIENT_ID=your_client_id_here
+   CROWDSTRIKE_CLIENT_SECRET=your_client_secret_here
+   CROWDSTRIKE_BASE_URL=https://api.eu-1.crowdstrike.com
+   NGSIEM_DEFAULT_REPOSITORY=base_sensor
+   LOG_LEVEL=INFO
+   ```
+
+3. **Configure Repositories**:
+
+   Create the repository catalog file `config/repositories.yaml`:
+
+   ```bash
+   cp config/repositories.example.yaml config/repositories.yaml
+   ```
+
+   The `repositories.yaml` format allows you to define schema and context for each repository:
+   
+   ```yaml
+   repositories:
+     - name: "base_sensor"
+       description: "Telemetry events from Falcon sensors (process, network, file)"
+       default: true
+       data_types:
+         - "ProcessRollup2"
+         - "NetworkConnectIP4"
+       use_cases:
+         - "Threat hunting"
+         - "Incident investigation"
+         
+     - name: "audit_logs"
+       description: "Falcon platform audit logs"
+       default: false
+   ```
+
+   > **Tip**: You can use the `get_repo_fieldset` tool to discover available fields in any configured repository.
+
+4. **Configure MCP Client**:
+
+   The server communicates via stdio. Configure your MCP client (e.g., Claude Desktop) to execute:
+   
+   ```bash
+   cd /path/to/cs-ngsiem-mcp && source .venv/bin/activate && python ngsiem_mcp_server.py
+   ```
+
+## Architecture
 
 ### System Components
 
@@ -72,82 +147,61 @@ sequenceDiagram
     Server-->>Client: Tool Response (JSON-RPC)
 ```
 
-## 🚀 Quick Start
 
-### Prerequisites
 
-- Python 3.13+
-- CrowdStrike API credentials with NGSIEM scope
-- MCP-compatible client application
-
-### Installation
-
-1. **Clone and setup environment**:
-```bash
-cd /path/to/cs-ngsiem-mcp
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-2. **Configure credentials**:
-```bash
-cp .env.example .env
-nano .env
-```
-
-Required environment variables:
-```env
-CROWDSTRIKE_CLIENT_ID=your_client_id_here
-CROWDSTRIKE_CLIENT_SECRET=your_client_secret_here
-CROWDSTRIKE_BASE_URL=https://api.eu-1.crowdstrike.com
-NGSIEM_DEFAULT_REPOSITORY=base_sensor
-```
-
-3. **Configure MCP client**:
-
-The server communicates via stdio. Configure your MCP client to execute:
-```bash
-cd /path/to/cs-ngsiem-mcp && source .venv/bin/activate && python ngsiem_mcp_server.py
-```
-
-## 🛠️ Available Tools
+## Available Tools
 
 ### Tool Workflow
 
+This diagram illustrates the typical user journey from discovering repositories to executing searches.
+
 ```mermaid
-stateDiagram-v2
-    [*] --> Idle
+graph TD
+    Start[User Goal] --> KnowRepo{Know Config?}
     
-    Idle --> Searching: start_search()
-    Idle --> SearchingWait: search_and_wait()
+    KnowRepo -->|No| ListRepos[get_available_repositories]
+    ListRepos --> ChooseRepo[Select Repository]
+    KnowRepo -->|Yes| ChooseRepo
     
-    Searching --> Running: Returns search_id
-    SearchingWait --> Polling: Internal polling
+    ChooseRepo --> NeedQuery{Need Query?}
     
-    Running --> Checking: get_search_status()
-    Polling --> Complete: Auto-complete
+    NeedQuery -->|Yes| BrowseTemplates[list_templates]
+    BrowseTemplates --> BuildQuery[build_query]
+    BuildQuery --> Validate[validate_query]
     
-    Checking --> Running: status=RUNNING
-    Checking --> Complete: status=DONE
+    NeedQuery -->|No| Validate
     
-    Running --> Cancelled: stop_search()
+    Validate -->|Valid| Execution{Execution Mode}
+    Validate -->|Invalid| BuildQuery
     
-    Complete --> [*]
-    Cancelled --> [*]
+    Execution -->|Async| StartSearch[start_search]
+    Execution -->|Blocking| SearchWait[search_and_wait]
     
-    note right of Searching
-        Async: Returns immediately
-        Client polls manually
-    end note
+    StartSearch --> Poll[get_search_status]
+    Poll -->|Running| Poll
+    Poll -->|Done| Results[Get Results]
     
-    note right of SearchingWait
-        Blocking: Waits for completion
-        Server polls automatically
-    end note
+    SearchWait --> Results
+    
+    style ListRepos fill:#fff3e0
+    style BrowseTemplates fill:#fff3e0
+    style BuildQuery fill:#fff3e0
+    style Validate fill:#fff3e0
+    style StartSearch fill:#e8f5e9
+    style SearchWait fill:#e8f5e9
 ```
 
-### 1. start_search
+### 1. get_available_repositories
+
+Get the list of configured NGSIEM repositories.
+
+**Parameters**: None
+
+**Returns**: List of repositories with descriptions, data types, and use cases.
+
+**Use Case**: Discovery of available data sources before searching.
+
+### 2. start_search
 
 Initiates an asynchronous NGSIEM search.
 
@@ -166,7 +220,7 @@ Initiates an asynchronous NGSIEM search.
 #event_simpleName=ProcessRollup2 | FileName=powershell.exe
 ```
 
-### 2. get_search_status
+### 3. get_search_status
 
 Retrieves status and results of a running search.
 
@@ -178,7 +232,7 @@ Retrieves status and results of a running search.
 
 **Use Case**: Polling for search completion
 
-### 3. search_and_wait
+### 4. search_and_wait
 
 Executes search and waits for completion (blocking operation).
 
@@ -209,7 +263,7 @@ graph LR
     style G fill:#ffebee
 ```
 
-### 4. stop_search
+### 5. stop_search
 
 Cancels a running search.
 
@@ -221,7 +275,7 @@ Cancels a running search.
 
 **Use Case**: Terminating long-running searches
 
-### 5. get_query_reference
+### 6. get_query_reference
 
 Access NGSIEM query language documentation.
 
@@ -234,7 +288,7 @@ Access NGSIEM query language documentation.
 
 **Use Case**: Discover available functions before building queries
 
-### 6. list_templates
+### 7. list_templates
 
 Browse pre-built security query templates.
 
@@ -246,7 +300,7 @@ Browse pre-built security query templates.
 
 **Use Case**: Find ready-to-use queries for common security operations
 
-### 7. validate_query
+### 8. validate_query
 
 Validate query syntax before execution.
 
@@ -258,7 +312,7 @@ Validate query syntax before execution.
 
 **Use Case**: Catch syntax errors before running searches
 
-### 8. build_query
+### 9. build_query
 
 Build queries from templates with parameters.
 
@@ -270,7 +324,46 @@ Build queries from templates with parameters.
 
 **Use Case**: Create customized queries from templates
 
-## 📁 Project Structure
+### 10. get_repo_fieldset
+
+**MANDATORY FIRST STEP**: Discover all available fields in a NGSIEM repository.
+
+> **Important**: Call this tool BEFORE constructing any search query. Only use field names returned by this tool in your queries.
+
+**Parameters**:
+
+- `repository` (string, optional): Repository name (uses default from config if not specified)
+- `timeout_seconds` (integer, optional): Maximum wait time (1-120 seconds, default: 60)
+
+**Returns**: Complete list of valid field names for the repository
+
+**Use Case**: Schema discovery to prevent query failures from invalid field references
+
+**Security**: Repository name is validated against injection attacks (alphanumeric, underscores, hyphens only)
+
+## Available Resources
+
+### ngsiem://repositories
+
+A JSON-formatted resource providing detailed metadata about all configured repositories.
+
+**Content:**
+```json
+[
+  {
+    "name": "base_sensor",
+    "description": "Main event stream",
+    "data_types": ["ProcessRollup2", "DnsRequest"],
+    "use_cases": ["General threat hunting", "Process analysis"]
+  }
+]
+```
+
+**Usage**:
+- **Claude Desktop**: Automatically reads this on startup to understand the environment.
+- **Manual**: Use `read_resource("ngsiem://repositories")` to inspect config.
+
+## Project Structure
 
 ```
 cs-ngsiem-mcp/
@@ -314,7 +407,7 @@ graph TD
     classDef external fill:#9e9e9e,color:#fff
 ```
 
-## 🔒 Security Architecture
+## Security Architecture
 
 ```mermaid
 graph LR
@@ -335,14 +428,14 @@ graph LR
 
 ### Security Features
 
-- ✅ **No hardcoded credentials**: All secrets in `.env`
-- ✅ **Input validation**: Pydantic models with strict typing
-- ✅ **Query sanitization**: Prevents injection attacks
-- ✅ **OAuth2 authentication**: Automatic token management
-- ✅ **Audit logging**: Detailed operation logs
-- ✅ **Error handling**: No sensitive data in error messages
+- **No hardcoded credentials**: All secrets in `.env`
+- **Input validation**: Pydantic models with strict typing
+- **Query sanitization**: Prevents injection attacks
+- **OAuth2 authentication**: Automatic token management
+- **Audit logging**: Detailed operation logs
+- **Error handling**: No sensitive data in error messages
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -374,7 +467,22 @@ The `repository` parameter is **optional** in all tools. When omitted, the serve
 
 **Override**: Specify `repository` parameter to use a different repository for specific searches.
 
-## 📊 Logging
+### Repository Configuration
+
+Define available repositories in `config/repositories.yaml`.
+
+```yaml
+repositories:
+  - name: base_sensor
+    default: true
+    description: "Main event stream"
+  - name: zscaler
+    description: "Zscaler Web logs"
+```
+
+**Note**: `config/repositories.yaml` is in `.gitignore` to prevent leaking sensitive internal names.
+
+## Logging
 
 ### Log Levels
 
@@ -413,7 +521,7 @@ View logs:
 tail -f ngsiem_mcp.log
 ```
 
-## 🧪 Testing
+## Testing
 
 ### Manual Testing
 
@@ -437,7 +545,7 @@ python check_search.py <search_id>
 | Network connections | `#event_simpleName=NetworkConnectIP4 RemoteIP=IP_ADDRESS` |
 | DNS queries | `#event_simpleName=DnsRequest DomainName=DOMAIN` |
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Server Won't Start
 
@@ -487,7 +595,7 @@ tail -50 ~/.local/state/mcp/logs/mcp-server-ngsiem.log
 2. Verify repository access
 3. Check time range (`start` parameter)
 
-## 🔄 Development
+## Development
 
 ### Key Design Decisions
 
@@ -512,18 +620,15 @@ tail -50 ~/.local/state/mcp/logs/mcp-server-ngsiem.log
 - [ ] Rate limiting
 - [ ] Exponential backoff retry logic
 
-## 📚 Resources
+## Resources
 
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 - [CrowdStrike NGSIEM API Documentation](https://falcon.crowdstrike.com/documentation/page/ngsiem-api)
 - [FalconPy SDK](https://github.com/CrowdStrike/falconpy)
 - [NGSIEM Query Language Guide](https://falcon.crowdstrike.com/documentation/page/ngsiem-query-language)
 
-## 📄 License
 
-This project is for use with CrowdStrike NGSIEM. Ensure compliance with your CrowdStrike license agreement.
-
-## 🤝 Contributing
+## Contributing
 
 For issues or enhancements:
 1. Test changes locally

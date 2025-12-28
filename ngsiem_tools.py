@@ -445,6 +445,187 @@ class NGSIEMSearchTools:
             logger.error(f"Failed to stop search: {e}", exc_info=True)
             raise RuntimeError(f"Search cancellation failed: {e}") from e
 
+    def get_repo_fieldset(
+        self,
+        repository: str,
+        timeout_seconds: int = 60
+    ) -> Dict[str, Any]:
+        """
+        Discover the complete field schema for a NGSIEM repository.
+
+        ╔══════════════════════════════════════════════════════════════════════╗
+        ║  CRITICAL INSTRUCTION FOR LLM AGENTS                                 ║
+        ╠══════════════════════════════════════════════════════════════════════╣
+        ║  This tool MUST be called BEFORE constructing any search query.      ║
+        ║                                                                      ║
+        ║  MANDATORY RULES:                                                    ║
+        ║  1. You MUST ONLY use field names returned by this function.         ║
+        ║  2. You are STRICTLY FORBIDDEN from inventing or hallucinating       ║
+        ║     field names that do not appear in this output.                   ║
+        ║  3. If the user requests a field not in this list, inform them       ║
+        ║     that the field does not exist and suggest alternatives.          ║
+        ║                                                                      ║
+        ║  SECURITY: Using non-existent fields will cause query failures.      ║
+        ╚══════════════════════════════════════════════════════════════════════╝
+
+        Args:
+            repository: NGSIEM repository name. Must contain only alphanumeric
+                characters, underscores, and hyphens. Case-sensitive.
+            timeout_seconds: Maximum wait time for schema retrieval (1-120s).
+                Default: 60 seconds.
+
+        Returns:
+            Dict containing:
+                - repository: The queried repository name
+                - field_count: Total number of fields discovered
+                - fields: List of field names available in the repository
+                - retrieved_at: ISO timestamp of retrieval
+
+        Raises:
+            ValueError: If repository name is invalid or contains dangerous characters.
+            RuntimeError: If repository does not exist or API call fails.
+            TimeoutError: If schema retrieval exceeds timeout.
+
+        Example:
+            >>> result = client.get_repo_fieldset("base_sensor")
+            >>> print(result['fields'][:5])
+            ['aid', 'event_simpleName', 'ContextTimeStamp', 'ComputerName', 'UserName']
+
+        Security:
+            - Repository name is strictly validated (alphanumeric, underscore, hyphen only)
+            - Input is sanitized to prevent query injection attacks
+            - Quoted strings are properly escaped
+        """
+        import re
+
+        # =========================================================================
+        # INPUT VALIDATION & SANITIZATION (OWASP: Input Validation)
+        # =========================================================================
+
+        if not repository:
+            raise ValueError("repository parameter is required and cannot be empty")
+
+        repository = repository.strip()
+
+        # Strict validation: only allow safe characters
+        # Pattern: alphanumeric, underscores, hyphens (no spaces, quotes, etc.)
+        if not re.match(r'^[a-zA-Z0-9_-]+$', repository):
+            raise ValueError(
+                f"Invalid repository name '{repository}'. "
+                "Repository names must contain only alphanumeric characters, "
+                "underscores, and hyphens. No spaces or special characters allowed."
+            )
+
+        # Validate timeout bounds
+        if not 1 <= timeout_seconds <= 120:
+            raise ValueError(
+                f"timeout_seconds must be between 1 and 120, got {timeout_seconds}"
+            )
+
+        # =========================================================================
+        # QUERY CONSTRUCTION (Injection-Safe)
+        # =========================================================================
+
+        # Escape any quotes in repository name (defense in depth)
+        safe_repo = repository.replace('"', '\\"')
+
+        # Build the fieldset query
+        # Format: #repo="{repository}" | fieldset()
+        fieldset_query = f'#repo="{safe_repo}" | fieldset()'
+
+        logger.info(
+            f"[FIELDSET] Discovering schema for repository '{repository}'"
+        )
+
+        # =========================================================================
+        # EXECUTE QUERY
+        # =========================================================================
+
+        try:
+            # Use search_and_wait for blocking execution with timeout
+            result = self.search_and_wait(
+                repository=repository,
+                query_string=fieldset_query,
+                start="1h",  # Short time range is sufficient for schema discovery
+                is_live=False,
+                max_wait_seconds=timeout_seconds,
+                poll_interval=2
+            )
+
+            # =========================================================================
+            # PARSE FIELDSET RESPONSE
+            # =========================================================================
+
+            events = result.get('events', [])
+
+            if not events:
+                logger.warning(
+                    f"[FIELDSET] No fields returned for repository '{repository}'. "
+                    "This may indicate an empty repository or incorrect name."
+                )
+                return {
+                    "repository": repository,
+                    "field_count": 0,
+                    "fields": [],
+                    "retrieved_at": datetime.utcnow().isoformat(),
+                    "warning": "No fields returned. Verify repository name is correct."
+                }
+
+            # Extract unique field names from the fieldset response
+            # The fieldset() function returns events with field metadata
+            fields: set[str] = set()
+
+            for event in events:
+                if isinstance(event, dict):
+                    # Add all keys from the event as field names
+                    fields.update(event.keys())
+                    # Also check for a 'field' or 'name' key if present
+                    if 'field' in event:
+                        fields.add(event['field'])
+                    if '_field' in event:
+                        fields.add(event['_field'])
+
+            # Sort fields alphabetically for consistent output
+            sorted_fields = sorted(fields)
+
+            logger.info(
+                f"[FIELDSET] Discovered {len(sorted_fields)} fields in '{repository}'"
+            )
+
+            return {
+                "repository": repository,
+                "field_count": len(sorted_fields),
+                "fields": sorted_fields,
+                "retrieved_at": datetime.utcnow().isoformat()
+            }
+
+        except TimeoutError:
+            logger.error(
+                f"[FIELDSET] Timeout after {timeout_seconds}s for '{repository}'"
+            )
+            raise TimeoutError(
+                f"Schema discovery timed out after {timeout_seconds} seconds. "
+                f"The repository '{repository}' may be very large or unavailable."
+            )
+
+        except RuntimeError as e:
+            # Re-raise with more context
+            if "404" in str(e) or "not found" in str(e).lower():
+                raise RuntimeError(
+                    f"Repository '{repository}' not found. "
+                    "Use get_available_repositories to see valid repository names."
+                ) from e
+            raise
+
+        except Exception as e:
+            logger.error(
+                f"[FIELDSET] Failed to discover schema for '{repository}': {e}",
+                exc_info=True
+            )
+            raise RuntimeError(
+                f"Schema discovery failed for repository '{repository}': {e}"
+            ) from e
+
 
 def create_ngsiem_client() -> NGSIEMSearchTools:
     """
