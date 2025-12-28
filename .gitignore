@@ -2,7 +2,7 @@
 .env
 
 # Repository configuration (may contain sensitive names)
-#config/repositories.yaml
+config/repositories.yaml
 
 # Python
 __pycache__/
