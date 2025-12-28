@@ -1,10 +1,13 @@
 {
   "mcpServers": {
-    "ngsiem": {
-      "command": "/bin/bash",
+    "cs-ngsiem-mcp": {
+      "command": "npx",
       "args": [
-        "-c",
-        "cd /Users/rod/cs-ngsiem-mcp && source .venv/bin/activate && python ngsiem_mcp_server.py"
+        "-y",
+        "mcp-remote",
+        "http://localhost:8080/mcp",
+        "--header",
+        "Authorization: Bearer <YOUR_AUTH_TOKEN>"
       ]
     }
   }

@@ -13,6 +13,11 @@ pydantic>=2.0.0
 # YAML parsing for query catalogs
 PyYAML>=6.0
 
+# HTTP Server (FastAPI + SSE)
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+sse-starlette>=2.2.0
+
 # Testing (optional)
 pytest>=7.0.0
 pytest-asyncio>=0.21.0

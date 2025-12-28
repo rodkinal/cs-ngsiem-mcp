@@ -1,0 +1,186 @@
+# NGSIEM Query Writing Best Practices
+# Source: https://library.humio.com/training/query-best-practices.html
+# Purpose: Provide LLM with structured guidance on efficient query construction
+
+version: "1.0.0"
+last_updated: "2025-12-28"
+source_url: "https://library.humio.com/training/query-best-practices.html"
+
+# =============================================================================
+# QUERY CONSTRUCTION PIPELINE
+# Follow this order for optimal query performance
+# =============================================================================
+query_pipeline:
+  description: |
+    Specificity matters when writing LogScale queries. The more specific you 
+    can be, the fewer results you'll have to sort through and the faster 
+    the query will run. Follow this ordered flow through the query pipeline.
+  
+  template: "tag-filters | field-filters | transformations | aggregate | visualization"
+  
+  steps:
+    - order: 1
+      name: "Narrow Timeframe"
+      description: "Reduce the search timeframe as much as possible"
+      rationale: "Smaller time windows mean fewer events to scan"
+      implementation: "Use the time picker or @timestamp filters"
+      examples:
+        - "Last 1 hour instead of Last 7 days"
+        - "@timestamp > now() - 1h"
+      
+    - order: 2
+      name: "Tag Filters First"
+      description: "Start with tagged fields (# prefix) for maximum efficiency"
+      rationale: |
+        Tags are indexed and tell LogScale WHERE to search. Using specific 
+        tags can reduce work units by 30x or more compared to general tags.
+      implementation: "Always start queries with #event_simpleName or similar tags"
+      examples:
+        - "#event_simpleName=ProcessRollup2"
+        - "#event_simpleName=AgentOnline OR #event_simpleName=HostnameChanged"
+      bad_examples:
+        - query: "#kind=Secondary | SecondaryEventType=aidmaster"
+          issue: "Too broad - #kind covers large data buckets"
+          better: "#event_simpleName=AgentOnline"
+          improvement: "31x reduction in work units"
+        
+    - order: 3
+      name: "Field Value Filters"
+      description: "Continue filtering with remaining field values that exist"
+      rationale: "Further reduce the dataset with specific field matches"
+      examples:
+        - "UserName=admin"
+        - "ComputerName=server*"
+        - "StatusCode=200"
+        
+    - order: 4
+      name: "Exclusion Filters"
+      description: "After filtering what you want, filter out what you don't want"
+      rationale: "Remove noise from results"
+      examples:
+        - "NOT UserName=SYSTEM"
+        - "UserName!=service_account"
+        - "!in(event_simpleName, values=[Heartbeat, KeepAlive])"
+        
+    - order: 5
+      name: "Regex Filters"
+      description: "Use regex only when wildcards are insufficient"
+      rationale: "Regex is more CPU-intensive than simple wildcards"
+      examples:
+        - "FileName=/\\.exe$/i"
+        - "CommandLine=/powershell/i"
+      notes:
+        - "Use /pattern/i for case-insensitive matching"
+        - "Prefer wildcards (*) when possible for better performance"
+        
+    - order: 6
+      name: "Transformations"
+      description: "Transform data with eval, format, math functions"
+      rationale: |
+        Transformations apply to EVERY event. Minimize event count first 
+        to reduce CPU usage. This is particularly costly for format operations.
+      examples:
+        - "eval(duration_seconds = Duration / 1000)"
+        - "formattime(\"%F %T\", as=Timestamp, field=@timestamp)"
+      optimization:
+        bad: "| formattime(...) | table([...], limit=200)"
+        good: "| table([@timestamp], limit=200) | formattime(...) | table([...])"
+        reason: "Apply limits BEFORE expensive transformations"
+        
+    - order: 7
+      name: "Aggregations"
+      description: "Aggregate data with count, sum, groupBy, etc."
+      examples:
+        - "groupBy(UserName)"
+        - "count()"
+        - "sum(BytesSent)"
+        - "avg(Duration)"
+        
+    - order: 8
+      name: "Visualization"
+      description: "Final output formatting with sort, table, head"
+      examples:
+        - "sort(order=desc)"
+        - "table([UserName, ComputerName, Timestamp])"
+        - "head(10)"
+
+# =============================================================================
+# OPTIMIZATION TIPS
+# Key performance guidelines
+# =============================================================================
+optimization_tips:
+  - id: "specific_tags"
+    title: "Use Specific Tags Over General Tags"
+    description: |
+      Tags like #kind cover very large buckets of data. Use more specific 
+      tags like #event_simpleName for dramatically better performance.
+    example:
+      bad: "#kind=Secondary | SecondaryEventType=aidmaster"
+      good: "#event_simpleName=AgentOnline OR #event_simpleName=HostnameChanged"
+    impact: "Can reduce work units by 30x or more"
+    
+  - id: "limit_before_transform"
+    title: "Limit Before Transforming"
+    description: |
+      Apply limits before expensive operations like formattime. This reduces 
+      the number of events that need transformation.
+    example:
+      bad: "| formattime(...) | table([...], limit=200)"
+      good: "| table([@timestamp], limit=200) | formattime(...)"
+    impact: "Significant time savings on large datasets"
+    
+  - id: "case_sensitivity"
+    title: "Case Sensitivity Awareness"
+    description: "LogScale is case-sensitive by default"
+    solution: "Use regex with /i flag for case-insensitive matching"
+    examples:
+      case_sensitive: "event_platform=Lin"
+      case_insensitive: "event_platform=/Lin/i"
+      
+  - id: "check_work_cost"
+    title: "Monitor Query Cost"
+    description: |
+      After running a query, check the 'Work' report below the results. 
+      Lower numbers indicate more efficient queries.
+    tip: "Run both versions of a query and compare work units"
+
+# =============================================================================
+# COMMON PATTERNS
+# Efficient query patterns for common tasks
+# =============================================================================
+efficient_patterns:
+  - name: "Count by field"
+    pattern: "#tag=value | groupBy(field) | count() | sort(order=desc)"
+    description: "Efficiently count events by a field value"
+    
+  - name: "Top N values"
+    pattern: "#tag=value | groupBy(field) | count() | sort(order=desc) | head(N)"
+    description: "Find top N values with proper filtering first"
+    
+  - name: "Time series with filter"
+    pattern: "#tag=value | field=filter | bucket(span=1h, function=count())"
+    description: "Events over time with proper pre-filtering"
+    
+  - name: "Unique values with count"
+    pattern: "#tag=value | groupBy(field) | count() | table([field, _count])"
+    description: "List unique values with counts, filtered first"
+
+# =============================================================================
+# ANTI-PATTERNS
+# Common mistakes to avoid
+# =============================================================================
+anti_patterns:
+  - name: "Missing tag filter"
+    bad: "UserName=admin | count()"
+    issue: "No tag filter means scanning all data"
+    good: "#event_simpleName=ProcessRollup2 | UserName=admin | count()"
+    
+  - name: "Transform before filter"
+    bad: "formattime(...) | UserName=admin"
+    issue: "Transforms every event before filtering"
+    good: "UserName=admin | formattime(...)"
+    
+  - name: "Overly broad regex"
+    bad: "CommandLine=/.*/i"
+    issue: "Matches everything, no filtering benefit"
+    good: "CommandLine=/powershell/i"

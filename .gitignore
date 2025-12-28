@@ -36,4 +36,4 @@ htmlcov/
 .pytest_cache/
 
 # Bash
-*.sh
+#*.sh

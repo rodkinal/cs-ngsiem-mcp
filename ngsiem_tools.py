@@ -43,6 +43,39 @@ class NGSIEMSearchTools:
             logger.error(f"Failed to initialize NGSIEM client: {e}")
             raise ValueError(f"Authentication failed: {e}") from e
     
+    def validate_query_syntax(self, query: str) -> None:
+        """
+        Perform internal syntax validation on the NGSIEM query string.
+        
+        Checks for:
+        1. Balanced parentheses (), [], {}
+        2. Balanced quotes ""
+        
+        Args:
+            query: The query string to validate
+            
+        Raises:
+            ValueError: If syntax errors are found
+        """
+        # 1. Check balanced parentheses
+        stack = []
+        pairs = {')': '(', ']': '[', '}': '{'}
+        
+        for char in query:
+            if char in '([{':
+                stack.append(char)
+            elif char in ')]}':
+                if not stack or stack[-1] != pairs[char]:
+                    raise ValueError(f"Query syntax error: Unbalanced parentheses. Found extra '{char}'.")
+                stack.pop()
+        
+        if stack:
+            raise ValueError(f"Query syntax error: Unbalanced parentheses. Missing closing for '{stack[-1]}'.")
+
+        # 2. Check balanced quotes (simple check)
+        if query.count('"') % 2 != 0:
+            raise ValueError("Query syntax error: Unbalanced double quotes.")
+
     def start_search(
         self,
         repository: str,
@@ -72,6 +105,7 @@ class NGSIEMSearchTools:
         Security:
             - Input sanitization for query_string
             - Repository name validation
+            - Query syntax validation (balanced parens/quotes)
             - Rate limiting handled by SDK
         """
         # Input validation
@@ -84,6 +118,9 @@ class NGSIEMSearchTools:
         # Sanitize inputs (prevent injection attacks)
         repository = repository.strip()
         query_string = query_string.strip()
+        
+        # Perform Syntax Validation
+        self.validate_query_syntax(query_string)
         
         logger.info(
             f"Starting search in repository '{repository}' "

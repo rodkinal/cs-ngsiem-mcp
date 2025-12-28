@@ -4,21 +4,31 @@ A Model Context Protocol (MCP) server that provides programmatic access to Crowd
 
 ## Overview
 
-This MCP server exposes CrowdStrike NGSIEM functionality through **ten specialized tools** and **one resource**, allowing any MCP client to perform threat hunting, query building, and security investigations programmatically.
+This MCP server acts as an intelligent bridge between LLMs and CrowdStrike NGSIEM, designed to prevent hallucinations and enforce query integrity. It exposes NGSIEM functionality through **ten specialized tools** that prioritize validation and context awareness.
+
+### Key Capabilities
+
+1. **Intelligent Query Validation**:
+   Before any search is executed, the **Query Validator** analyzes the syntax to catch common errors. It checks for balanced parentheses, valid operators, and correct function usage, ensuring that only syntactically correct queries are sent to the API.
+
+2. **Dynamic Schema Discovery (Field Validation)**:
+   To prevent the LLM from hallucinating non-existent fields, the server provides the `get_repo_fieldset` tool. This tool dynamically downloads the **live schema** (all valid fields) for a specific repository from your environment. The LLM is instructed to *always* consult this schema before constructing a query.
+
+3. **Context-Aware Repository Management**:
+   The server does not guess where logs are securely stored. You explicitly define your log sources in `config/repositories.yaml`. This configuration file tells the LLM exactly **which repository** contains what data (e.g., "base_sensor" repository for process events, "squid" repository for proxy logs), allowing it to intelligently select the right data source for each question.
 
 ```mermaid
-graph LR
-    A[MCP Client] -->|JSON-RPC| B[NGSIEM MCP Server]
-    B -->|APIHarnessV2| C[CrowdStrike NGSIEM API]
-    B -->|Repositories| D[Config & Catalogs]
-    C -->|Search Results| B
-    D -->|Templates/Syntax| B
-    B -->|Enriched Response| A
+graph TD
+    A[LLM Query] --> B{Schema Check}
+    B -->|get_repo_fieldset| C[Download Live Fields]
+    C --> D[Construct Query]
+    D --> E{Syntax Check}
+    E -->|validate_query| F[Execute Search]
     
     style A fill:#e1f5ff
-    style B fill:#e8f5e9
-    style C fill:#fce4ec
-    style D fill:#fff3e0
+    style B fill:#fff3e0
+    style E fill:#fff3e0
+    style F fill:#e8f5e9
 ```
 
 ## Quick Start
@@ -85,67 +95,61 @@ graph LR
 
    > **Tip**: You can use the `get_repo_fieldset` tool to discover available fields in any configured repository.
 
-4. **Configure MCP Client**:
 
-   The server communicates via stdio. Configure your MCP client (e.g., Claude Desktop) to execute:
-   
-   ```bash
-   cd /path/to/cs-ngsiem-mcp && source .venv/bin/activate && python ngsiem_mcp_server.py
-   ```
+
+## HTTP Server Mode (FastAPI + SSE)
+
+For production deployments or remote access, the server supports the **MCP 2025-11-25 Streamable HTTP** transport.
+
+📄 **[Read the Full Architecture & Feature Guide](SERVER_ARCHITECTURE.md)** for detailed diagrams and flows.
+
+### Quick Start (HTTP)
+
+1.  **Configure API Key**:
+    Add `MCP_API_KEY` to your `.env` file (generated automatically if missing, but better to set it).
+
+2.  **Start the Server**:
+    Use the provided script which handles environment loading and logging:
+    ```bash
+    ./start_http_server.sh
+    ```
+
+3.  **Verify Connection**:
+    Use the Inspector script to test the server:
+    ```bash
+    ./start_http_inspector.sh
+    ```
+
+### Claude Desktop Integration
+
+To connect Claude Desktop to the HTTP server, you must use a proxy to inject the authentication headers.
+
+Update your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "ngsiem-http": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:8080/mcp",
+        "--header",
+        "Authorization: Bearer <YOUR_MCP_API_KEY_LOCATED_IN_YOUR .env FILE>"
+      ]
+    }
+  }
+}
+```
+
+See [SERVER_ARCHITECTURE.md](SERVER_ARCHITECTURE.md) for detailed configuration options.
 
 ## Architecture
 
-### System Components
+For a detailed breakdown of the system architecture, request flows, and component diagrams, please refer to:
 
-```mermaid
-graph TB
-    subgraph "MCP Client Application"
-        CLIENT[MCP Client]
-    end
-    
-    subgraph "NGSIEM MCP Server"
-        SERVER[ngsiem_mcp_server.py]
-        TOOLS[ngsiem_tools.py]
-        CONFIG[config.py]
-        ENV[.env]
-    end
-    
-    subgraph "CrowdStrike Platform"
-        API[NGSIEM API]
-        REPO[(Event Repository)]
-    end
-    
-    CLIENT <-->|stdio/JSON-RPC| SERVER
-    SERVER --> TOOLS
-    SERVER --> CONFIG
-    CONFIG --> ENV
-    TOOLS -->|HTTPS| API
-    API <--> REPO
-    
-    style CLIENT fill:#4285f4,color:#fff
-    style SERVER fill:#34a853,color:#fff
-    style TOOLS fill:#fbbc04
-    style API fill:#ea4335,color:#fff
-```
-
-### Request Flow
-
-```mermaid
-sequenceDiagram
-    participant Client as MCP Client
-    participant Server as MCP Server
-    participant Tools as NGSIEM Tools
-    participant API as CrowdStrike API
-    
-    Client->>Server: Tool Request (JSON-RPC)
-    Server->>Server: Validate Arguments
-    Server->>Tools: Execute Tool Method
-    Tools->>API: HTTP Request
-    API-->>Tools: API Response
-    Tools->>Tools: Process & Format
-    Tools-->>Server: Structured Result
-    Server-->>Client: Tool Response (JSON-RPC)
-```
+👉 **[SERVER_ARCHITECTURE.md](SERVER_ARCHITECTURE.md)**
 
 
 
@@ -341,6 +345,34 @@ Build queries from templates with parameters.
 
 **Security**: Repository name is validated against injection attacks (alphanumeric, underscores, hyphens only)
 
+### 11. get_query_best_practices
+
+Get NGSIEM query writing best practices for optimal performance.
+
+**Parameters**: None
+
+**Returns**: 
+- 8-step query construction pipeline (based on Humio/LogScale documentation)
+- Optimization tips (tag specificity, limit placement, case sensitivity)
+- Efficient patterns with examples
+- Anti-patterns to avoid
+
+**Use Case**: Learn how to structure queries for maximum efficiency
+
+**Query Pipeline** (execute in order):
+```
+tag-filters | field-filters | transformations | aggregate | visualization
+```
+
+1. **Narrow Timeframe** - Reduce search scope
+2. **Tag Filters First** - Use `#field` syntax for indexed fields (30x faster)
+3. **Field Value Filters** - Filter by specific values
+4. **Exclusion Filters** - Remove unwanted results
+5. **Regex Filters** - Pattern matching (use sparingly)
+6. **Transformations** - eval, format, parse functions
+7. **Aggregations** - count, sum, groupBy, etc.
+8. **Visualization** - sort, table, head for output
+
 ## Available Resources
 
 ### ngsiem://repositories
@@ -367,7 +399,8 @@ A JSON-formatted resource providing detailed metadata about all configured repos
 
 ```
 cs-ngsiem-mcp/
-├── ngsiem_mcp_server.py     # MCP server implementation
+├── ngsiem_mcp_stdio.py      # MCP stdio server implementation
+├── ngsiem_mcp_http.py       # MCP HTTP server implementation
 ├── ngsiem_tools.py           # NGSIEM API wrapper
 ├── ngsiem_query_catalog.py   # Query function/template catalog
 ├── ngsiem_query_validator.py # Query syntax validator
@@ -386,7 +419,7 @@ cs-ngsiem-mcp/
 
 ```mermaid
 graph TD
-    A[ngsiem_mcp_server.py] --> B[ngsiem_tools.py]
+    A[ngsiem_mcp_http.py] --> B[ngsiem_tools.py]
     A --> C[config.py]
     B --> C
     C --> D[.env]
@@ -446,7 +479,18 @@ graph LR
 | `CROWDSTRIKE_BASE_URL` | API Endpoint | `https://api.eu-1.crowdstrike.com` | Yes |
 | `NGSIEM_DEFAULT_REPOSITORY` | Default Repository | `base_sensor` | Yes |
 | `LOG_LEVEL` | Logging Level | `INFO` | No |
-| `LOG_FILE` | Log File Path | `ngsiem_mcp.log` | No |
+| `LOG_FILE` | Log File Path (Stdio Mode) | `ngsiem_mcp.log` | No |
+| **HTTP Server Config** | | | |
+| `MCP_API_KEY` | Bearer Token for Auth | `secret-token-123` | Yes (HTTP) |
+| `MCP_HTTP_HOST` | Server Host | `0.0.0.0` | No |
+| `MCP_HTTP_PORT` | Server Port | `8080` | No |
+| `MCP_HTTP_ACCESS_LOG` | Uvicorn Access Log Path | `ngsiem-mcp-http.log` | No |
+| `MCP_HTTP_APP_LOG` | Application Log Path | `ngsiem-mcp-app.log` | No |
+| `MCP_CORS_ORIGINS` | CORS Allowed Origins | `*` or `http://localhost:3000` | No |
+| `NGSIEM_THREAD_POOL_SIZE` | Max threads for blocking API calls | `4` | No |
+| `MCP_SKIP_AUTH` | Bypass auth for dev testing | `true` | No |
+
+> **Note**: `MCP_SKIP_AUTH=true` disables authentication entirely. Only use for development with MCP Inspector (which has a known bug that prevents header forwarding).
 
 ### Regional Endpoints
 
@@ -518,107 +562,9 @@ LOG_LEVEL=DEBUG
 
 View logs:
 ```bash
-tail -f ngsiem_mcp.log
+tail -f ngsiem-mcp-http.log
+tail -f ngsiem-mcp-app.log
 ```
-
-## Testing
-
-### Manual Testing
-
-```bash
-# Test configuration loading
-python -c "from config import load_config; print(load_config())"
-
-# Test search initiation
-python test_api.py
-
-# Test result retrieval (use ID from previous test)
-python check_search.py <search_id>
-```
-
-### Example Queries
-
-| Use Case | NGSIEM Query |
-|----------|--------------|
-| User logon events | `#event_simpleName=*Logon* UserName=USERNAME` |
-| Process executions | `#event_simpleName=ProcessRollup2 FileName=PROCESS` |
-| Network connections | `#event_simpleName=NetworkConnectIP4 RemoteIP=IP_ADDRESS` |
-| DNS queries | `#event_simpleName=DnsRequest DomainName=DOMAIN` |
-
-## Troubleshooting
-
-### Server Won't Start
-
-**Symptom**: MCP client shows "Server disconnected"
-
-**Diagnosis**:
-```bash
-# Check server logs
-tail -50 ~/.local/state/mcp/logs/mcp-server-ngsiem.log
-# Or platform-specific log location
-```
-
-**Common Causes**:
-1. **Missing dependencies**: `pip install -r requirements.txt`
-2. **Import errors**: Verify all imports in server code
-3. **Invalid credentials**: Check `.env` file
-
-### Authentication Failed
-
-**Symptom**: "401 Unauthorized" or "Authentication failed"
-
-**Solution**:
-1. Verify credentials in CrowdStrike Console
-2. Ensure API key has NGSIEM scope
-3. Check `CROWDSTRIKE_BASE_URL` matches your region
-
-### Repository Not Found
-
-**Symptom**: "404 Not Found" or empty response
-
-**Solution**:
-1. Verify repository name in NGSIEM console (case-sensitive)
-2. Update `NGSIEM_DEFAULT_REPOSITORY` in `.env`
-3. Ensure API key has access to repository
-
-### Empty Search Results
-
-**Symptom**: Status 200 but empty body `{}`
-
-**Causes**:
-- Incorrect repository name
-- Invalid query syntax
-- No events match query criteria
-
-**Solution**:
-1. Test with simple query: `#event_simpleName=*`
-2. Verify repository access
-3. Check time range (`start` parameter)
-
-## Development
-
-### Key Design Decisions
-
-1. **APIHarnessV2 over NGSIEM class**: Better compatibility with EU regions
-2. **Async architecture**: Non-blocking MCP handlers
-3. **Optional repository**: Reduces client complexity
-4. **Immediate search ID return**: Enables async polling patterns
-
-### Adding New Tools
-
-1. Define Pydantic model in `ngsiem_mcp_server.py`
-2. Implement method in `ngsiem_tools.py`
-3. Add tool definition to `@app.list_tools()`
-4. Add handler to `@app.call_tool()`
-
-### Future Enhancements
-
-- [ ] Async API calls with `asyncio.to_thread()`
-- [ ] Result caching
-- [ ] Lookup file management
-- [x] Query builder assistant
-- [ ] Rate limiting
-- [ ] Exponential backoff retry logic
 
 ## Resources
 
@@ -638,4 +584,4 @@ For issues or enhancements:
 
 ---
 
-**Built with**: Python 3.13 | MCP SDK 1.25.0 | FalconPy 1.5.5 | Pydantic 2.12.5
+**Built with**: Python 3.13 | MCP SDK 1.25.0 | FalconPy 1.5.5 | Pydantic 2.12.5 by **Rodkinal** and **GenIA**
