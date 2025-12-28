@@ -9,11 +9,13 @@ import logging
 from typing import Any, Optional
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, Resource
 from pydantic import BaseModel, Field
 
 from config import CONFIG, load_config
 from ngsiem_tools import create_ngsiem_client, NGSIEMSearchTools
+from ngsiem_query_catalog import get_catalog, QueryCatalog
+from ngsiem_query_validator import get_validator, ValidationResult
 
 
 # Configure logging
@@ -95,6 +97,122 @@ class StopSearchArgs(BaseModel):
     )
 
 
+class GetQueryReferenceArgs(BaseModel):
+    """Arguments for query reference lookup."""
+    category: Optional[str] = Field(
+        default=None,
+        description="Filter by category: aggregate, filtering, security, data_manipulation, sorting, time, parsing, correlation"
+    )
+    function_name: Optional[str] = Field(
+        default=None,
+        description="Get details for specific function (e.g., 'count', 'groupBy', 'ioc:lookup')"
+    )
+    search_term: Optional[str] = Field(
+        default=None,
+        description="Search functions by keyword in name/description"
+    )
+
+
+class ListTemplatesArgs(BaseModel):
+    """Arguments for listing query templates."""
+    category: Optional[str] = Field(
+        default=None,
+        description="Filter by category: threat_hunting, ioc_hunting, incident_response, baseline, compliance, statistics"
+    )
+    search_term: Optional[str] = Field(
+        default=None,
+        description="Search templates by keyword"
+    )
+
+
+class ValidateQueryArgs(BaseModel):
+    """Arguments for query validation."""
+    query: str = Field(..., description="NGSIEM query to validate")
+    strict: bool = Field(
+        default=False,
+        description="If true, warnings are treated as errors"
+    )
+
+
+class BuildQueryArgs(BaseModel):
+    """Arguments for assisted query building."""
+    template: Optional[str] = Field(
+        default=None,
+        description="Template name to use as base (e.g., 'powershell_execution', 'check_ip')"
+    )
+    parameters: Optional[dict] = Field(
+        default=None,
+        description="Template parameter values (e.g., {'ip_address': '10.0.0.1'})"
+    )
+
+
+# =============================================================================
+# MCP RESOURCES
+# =============================================================================
+
+@app.list_resources()
+async def list_resources() -> list[Resource]:
+    """
+    List available MCP resources.
+    
+    Exposes NGSIEM repository configuration to the LLM.
+    """
+    logger.info("[RESOURCE] LLM requested list of resources")
+    return [
+        Resource(
+            uri="ngsiem://repositories",
+            name="User's NGSIEM Repository Configuration",
+            description=(
+                "CRITICAL: Read this first before answering repository questions. "
+                "Contains the complete list of NGSIEM repositories configured by the user, "
+                "including names, descriptions, data types, use cases, and retention policies. "
+                "Always consult this resource to provide accurate repository recommendations."
+            ),
+            mimeType="application/json"
+        )
+    ]
+
+
+@app.read_resource()
+async def read_resource(uri: str) -> str:
+    """
+    Read the content of a resource by URI.
+    
+    Args:
+        uri: Resource URI (e.g., 'ngsiem://repositories')
+        
+    Returns:
+        Resource content as JSON string
+    """
+    # Convert Pydantic AnyUrl to string for comparison
+    uri_str = str(uri)
+    logger.info(f"[RESOURCE] LLM reading resource: {uri_str}")
+    
+    if uri_str == "ngsiem://repositories":
+        try:
+            catalog = get_catalog()
+            logger.info("[RESOURCE] Catalog loaded successfully")
+            
+            repos = catalog.get_repositories()
+            logger.info(f"[RESOURCE] Retrieved {len(repos)} repositories from catalog")
+            
+            json_str = json.dumps(repos, indent=2, ensure_ascii=False)
+            logger.info(f"[RESOURCE] JSON serialized, length: {len(json_str)} chars")
+            logger.info(f"[RESOURCE] Returning {len(repos)} repositories to LLM")
+            
+            return json_str
+            
+        except Exception as e:
+            logger.error(f"[RESOURCE] ERROR loading repositories: {type(e).__name__}: {e}", exc_info=True)
+            raise
+    
+    raise ValueError(f"Unknown resource: {uri_str}")
+
+
+# =============================================================================
+# MCP TOOLS
+# =============================================================================
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """
@@ -105,14 +223,18 @@ async def list_tools() -> list[Tool]:
     """
     return [
         Tool(
-            name="start_search",
+            name="get_available_repositories",
             description=(
-                "Initiate a NGSIEM search in CrowdStrike. "
-                "Returns a search job ID that can be used to check status and retrieve results. "
-                "Use NGSIEM query language syntax (e.g., '#event_simpleName=ProcessRollup2 | ComputerName=*'). "
-                "For time ranges, use relative (1d, 24h) or absolute timestamps."
+                "Get the list of NGSIEM repositories configured in this environment. "
+                "IMPORTANT: Call this tool FIRST before answering questions about repositories "
+                "or making search recommendations. Returns repository names, descriptions, "
+                "data types, use cases, and retention policies for ALL configured repositories."
             ),
-            inputSchema=StartSearchArgs.model_json_schema()
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
         ),
         Tool(
             name="get_search_status",
@@ -143,6 +265,44 @@ async def list_tools() -> list[Tool]:
                 "to allow progress monitoring and avoid timeouts."
             ),
             inputSchema=SearchAndWaitArgs.model_json_schema()
+        ),
+        Tool(
+            name="get_query_reference",
+            description=(
+                "Get NGSIEM query language reference. "
+                "Returns available functions, syntax, and operators. "
+                "Use to discover available functions before building queries. "
+                "Filter by category (aggregate, filtering, security, etc.) or search by keyword."
+            ),
+            inputSchema=GetQueryReferenceArgs.model_json_schema()
+        ),
+        Tool(
+            name="list_templates",
+            description=(
+                "List available pre-built NGSIEM query templates for security operations. "
+                "Templates cover threat hunting, IOC hunting, incident response, baselines, and compliance. "
+                "Each template includes the query, description, MITRE ATT&CK mapping, and required parameters."
+            ),
+            inputSchema=ListTemplatesArgs.model_json_schema()
+        ),
+        Tool(
+            name="validate_query",
+            description=(
+                "Validate NGSIEM query syntax before execution. "
+                "Checks for balanced parentheses/brackets/quotes, unknown functions, "
+                "common mistakes, and potentially dangerous patterns. "
+                "Returns issues with suggestions for fixes."
+            ),
+            inputSchema=ValidateQueryArgs.model_json_schema()
+        ),
+        Tool(
+            name="build_query",
+            description=(
+                "Build a NGSIEM query from a template with parameters. "
+                "Use list_templates first to see available templates. "
+                "Provide template name and parameters to generate a ready-to-execute query."
+            ),
+            inputSchema=BuildQueryArgs.model_json_schema()
         ),
     ]
 
@@ -179,7 +339,42 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
     
     try:
         # Route to appropriate tool handler
-        if name == "start_search":
+        if name == "get_available_repositories":
+            catalog = get_catalog()
+            repos = catalog.get_repositories()
+            logger.info(f"[TOOL] Returning {len(repos)} repositories to LLM")
+            
+            # Format response as detailed markdown
+            response_text = "# NGSIEM Repositories Configuration\n\n"
+            response_text += f"**Total Repositories**: {len(repos)}\n\n"
+            
+            for repo in repos:
+                response_text += f"## {repo.get('name', 'Unnamed')}\n\n"
+                response_text += f"**Description**: {repo.get('description', 'No description')}\n\n"
+                
+                if repo.get('default'):
+                    response_text += "**⭐ Default Repository**\n\n"
+                
+                if repo.get('data_types'):
+                    response_text += "**Data Types**:\n"
+                    for dt in repo['data_types']:
+                        response_text += f"- {dt}\n"
+                    response_text += "\n"
+                
+                if repo.get('use_cases'):
+                    response_text += "**Use Cases**:\n"
+                    for uc in repo['use_cases']:
+                        response_text += f"- {uc}\n"
+                    response_text += "\n"
+                
+                if repo.get('retention'):
+                    response_text += f"**Retention**: {repo['retention']}\n\n"
+                
+                response_text += "---\n\n"
+            
+            return [TextContent(type="text", text=response_text)]
+        
+        elif name == "start_search":
             args = StartSearchArgs(**arguments)
             
             # Use default repository if not specified
@@ -309,6 +504,158 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                     f"The search is still running in the background. "
                     f"You can check results later using `get_search_status`.\n"
                 )
+        
+        elif name == "get_query_reference":
+            args = GetQueryReferenceArgs(**arguments)
+            catalog = get_catalog()
+            
+            if args.function_name:
+                # Get specific function details
+                func = catalog.get_function(args.function_name)
+                if func:
+                    response_text = (
+                        f"📖 **Function: {args.function_name}**\n\n"
+                        f"**Category:** {func.get('category', 'N/A')}\n"
+                        f"**Syntax:** `{func.get('syntax', 'N/A')}`\n"
+                        f"**Description:** {func.get('description', 'N/A')}\n\n"
+                    )
+                    
+                    if func.get('parameters'):
+                        response_text += "**Parameters:**\n"
+                        for param in func['parameters']:
+                            req = "required" if param.get('required') else "optional"
+                            response_text += f"- `{param['name']}` ({param.get('type', 'any')}, {req}): {param.get('description', '')}\n"
+                        response_text += "\n"
+                    
+                    if func.get('examples'):
+                        response_text += "**Examples:**\n```\n"
+                        for ex in func['examples'][:3]:
+                            if isinstance(ex, dict):
+                                response_text += f"{ex.get('query', ex)}\n"
+                            else:
+                                response_text += f"{ex}\n"
+                        response_text += "```\n"
+                else:
+                    response_text = f"❌ Function '{args.function_name}' not found.\n\nUse `get_query_reference` without parameters to see all available functions."
+            
+            elif args.search_term:
+                # Search functions
+                results = catalog.search_functions(args.search_term)
+                if results:
+                    response_text = f"🔍 **Functions matching '{args.search_term}':**\n\n"
+                    for func in results[:10]:
+                        response_text += f"- **{func['name']}** ({func['category']}): {func.get('description', '')[:80]}...\n"
+                else:
+                    response_text = f"No functions found matching '{args.search_term}'."
+            
+            elif args.category:
+                # List functions in category
+                funcs = catalog.get_functions_by_category(args.category)
+                if funcs:
+                    response_text = f"📚 **{args.category.title()} Functions:**\n\n"
+                    for name, details in list(funcs.items())[:15]:
+                        if isinstance(details, dict):
+                            response_text += f"- **{name}**: `{details.get('syntax', name + '()')}` - {details.get('description', '')[:60]}...\n"
+                else:
+                    cats = catalog.get_function_categories()
+                    response_text = f"❌ Category '{args.category}' not found.\n\nAvailable categories: {', '.join(cats)}"
+            
+            else:
+                # List all categories with counts
+                response_text = "📚 **NGSIEM Query Reference**\n\n**Function Categories:**\n"
+                for cat in catalog.get_function_categories():
+                    funcs = catalog.get_functions_by_category(cat)
+                    count = len([f for f in funcs.values() if isinstance(f, dict)])
+                    response_text += f"- **{cat}**: {count} functions\n"
+                response_text += "\n**Syntax Topics:**\n"
+                for topic in catalog.get_syntax_topics():
+                    response_text += f"- {topic}\n"
+                response_text += "\nUse `get_query_reference` with `category` or `function_name` for details."
+        
+        elif name == "list_templates":
+            args = ListTemplatesArgs(**arguments)
+            catalog = get_catalog()
+            
+            if args.search_term:
+                results = catalog.search_templates(args.search_term)
+                if results:
+                    response_text = f"🔍 **Templates matching '{args.search_term}':**\n\n"
+                    for tmpl in results[:10]:
+                        response_text += f"- **{tmpl['id']}** ({tmpl['category']}): {tmpl.get('name', '')}\n"
+                        response_text += f"  _{tmpl.get('description', '')[:80]}_\n"
+                else:
+                    response_text = f"No templates found matching '{args.search_term}'."
+            
+            elif args.category:
+                templates = catalog.get_templates_by_category(args.category)
+                if templates:
+                    response_text = f"📋 **{args.category.replace('_', ' ').title()} Templates:**\n\n"
+                    for tmpl_id, details in templates.items():
+                        if isinstance(details, dict):
+                            severity = details.get('severity', 'info')
+                            severity_emoji = {'high': '🔴', 'medium': '🟡', 'low': '🟢', 'info': 'ℹ️'}.get(severity, 'ℹ️')
+                            response_text += f"- {severity_emoji} **{tmpl_id}**: {details.get('name', tmpl_id)}\n"
+                            if details.get('mitre_techniques'):
+                                response_text += f"  MITRE: {', '.join(details['mitre_techniques'][:3])}\n"
+                else:
+                    cats = catalog.get_template_categories()
+                    response_text = f"❌ Category '{args.category}' not found.\n\nAvailable: {', '.join(cats)}"
+            
+            else:
+                response_text = "📋 **Available Query Templates**\n\n"
+                for cat in catalog.get_template_categories():
+                    templates = catalog.get_templates_by_category(cat)
+                    count = len([t for t in templates.values() if isinstance(t, dict)])
+                    response_text += f"**{cat.replace('_', ' ').title()}** ({count} templates)\n"
+                response_text += "\nUse `list_templates` with `category` to see templates in a category."
+        
+        elif name == "validate_query":
+            args = ValidateQueryArgs(**arguments)
+            validator = get_validator()
+            result = validator.validate(args.query, strict=args.strict)
+            
+            if result.valid:
+                response_text = "✅ **Query is valid**\n\n"
+                response_text += f"**Sanitized Query:**\n```\n{result.sanitized_query}\n```\n"
+            else:
+                response_text = "❌ **Query has issues**\n\n"
+            
+            if result.issues:
+                response_text += "**Issues Found:**\n"
+                for issue in result.issues:
+                    emoji = {'error': '🔴', 'warning': '🟡', 'info': 'ℹ️'}.get(issue.severity.value, '•')
+                    response_text += f"- {emoji} **{issue.severity.value.upper()}**: {issue.message}\n"
+                    if issue.suggestion:
+                        response_text += f"  _Suggestion: {issue.suggestion}_\n"
+        
+        elif name == "build_query":
+            args = BuildQueryArgs(**arguments)
+            catalog = get_catalog()
+            
+            if not args.template:
+                response_text = "❌ Please specify a template name.\n\nUse `list_templates` to see available templates."
+            else:
+                template = catalog.get_template(args.template)
+                if not template:
+                    response_text = f"❌ Template '{args.template}' not found.\n\nUse `list_templates` to see available templates."
+                else:
+                    params = args.parameters or {}
+                    query = catalog.render_template(args.template, **params)
+                    
+                    response_text = f"🔨 **Built Query from '{args.template}'**\n\n"
+                    response_text += f"**Template:** {template.get('name', args.template)}\n"
+                    response_text += f"**Category:** {template.get('category', 'N/A')}\n"
+                    response_text += f"**Time Range:** {template.get('time_range', '1d')}\n\n"
+                    response_text += f"**Generated Query:**\n```\n{query}\n```\n\n"
+                    
+                    # Check for unfilled parameters
+                    if '{{' in query:
+                        response_text += "⚠️ **Warning:** Query has unfilled parameters. Required:\n"
+                        for param in template.get('parameters', []):
+                            if param.get('required', False):
+                                response_text += f"- `{param['name']}`: {param.get('description', '')}\n"
+                    else:
+                        response_text += "✅ Query is ready to execute with `search_and_wait` or `start_search`."
         
         else:
             raise ValueError(f"Unknown tool: {name}")

@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server that provides programmatic access to Crowd
 
 ## 🎯 Overview
 
-This MCP server exposes CrowdStrike NGSIEM functionality through four tools, allowing any MCP client to perform threat hunting and security investigations programmatically.
+This MCP server exposes CrowdStrike NGSIEM functionality through eight tools, allowing any MCP client to perform threat hunting and security investigations programmatically.
 
 ```mermaid
 graph LR
@@ -221,19 +221,72 @@ Cancels a running search.
 
 **Use Case**: Terminating long-running searches
 
+### 5. get_query_reference
+
+Access NGSIEM query language documentation.
+
+**Parameters**:
+- `category` (string, optional): Filter by category (aggregate, filtering, security, etc.)
+- `function_name` (string, optional): Get details for specific function
+- `search_term` (string, optional): Search functions by keyword
+
+**Returns**: Function documentation with syntax and examples
+
+**Use Case**: Discover available functions before building queries
+
+### 6. list_templates
+
+Browse pre-built security query templates.
+
+**Parameters**:
+- `category` (string, optional): Filter by category (threat_hunting, ioc_hunting, etc.)
+- `search_term` (string, optional): Search templates by keyword
+
+**Returns**: Available templates with descriptions and MITRE ATT&CK mapping
+
+**Use Case**: Find ready-to-use queries for common security operations
+
+### 7. validate_query
+
+Validate query syntax before execution.
+
+**Parameters**:
+- `query` (string, required): NGSIEM query to validate
+- `strict` (boolean, optional): Treat warnings as errors
+
+**Returns**: Validation result with issues and suggestions
+
+**Use Case**: Catch syntax errors before running searches
+
+### 8. build_query
+
+Build queries from templates with parameters.
+
+**Parameters**:
+- `template` (string, required): Template name to use
+- `parameters` (object, optional): Values for template placeholders
+
+**Returns**: Generated query ready for execution
+
+**Use Case**: Create customized queries from templates
+
 ## 📁 Project Structure
 
 ```
 cs-ngsiem-mcp/
-├── ngsiem_mcp_server.py    # MCP server implementation
-├── ngsiem_tools.py          # NGSIEM API wrapper
-├── config.py                # Configuration management
-├── .env                     # Credentials (gitignored)
-├── .env.example             # Configuration template
-├── requirements.txt         # Python dependencies
-├── test_api.py             # Test: initiate search
-├── check_search.py         # Test: retrieve results
-└── README.md               # This file
+├── ngsiem_mcp_server.py     # MCP server implementation
+├── ngsiem_tools.py           # NGSIEM API wrapper
+├── ngsiem_query_catalog.py   # Query function/template catalog
+├── ngsiem_query_validator.py # Query syntax validator
+├── config.py                 # Configuration management
+├── config/                   # Query catalogs
+│   ├── ngsiem_functions.yaml # 54 NGSIEM functions
+│   ├── ngsiem_syntax.yaml    # Query syntax reference
+│   └── ngsiem_templates.yaml # 32 security templates
+├── .env                      # Credentials (gitignored)
+├── .env.example              # Configuration template
+├── requirements.txt          # Python dependencies
+└── README.md                 # This file
 ```
 
 ### Module Dependencies
@@ -455,7 +508,7 @@ tail -50 ~/.local/state/mcp/logs/mcp-server-ngsiem.log
 - [ ] Async API calls with `asyncio.to_thread()`
 - [ ] Result caching
 - [ ] Lookup file management
-- [ ] Query builder assistant
+- [x] Query builder assistant
 - [ ] Rate limiting
 - [ ] Exponential backoff retry logic
 

@@ -1,0 +1,468 @@
+# NGSIEM Query Templates for Security Operations
+# Pre-built queries for common security use cases
+
+version: "1.0.0"
+last_updated: "2025-12-27"
+
+# ============================================================================
+# THREAT HUNTING TEMPLATES
+# Queries for proactive threat detection
+# ============================================================================
+threat_hunting:
+  powershell_execution:
+    name: "PowerShell Execution Detection"
+    description: "Detect PowerShell process executions with command line details"
+    severity: medium
+    mitre_tactics: ["Execution"]
+    mitre_techniques: ["T1059.001"]
+    query: |
+      #event_simpleName=ProcessRollup2
+      | FileName=/powershell/i
+      | select([Timestamp, ComputerName, UserName, CommandLine, ParentBaseFileName])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "24h"
+
+  encoded_powershell:
+    name: "Encoded PowerShell Commands"
+    description: "Detect Base64 encoded PowerShell commands (common evasion technique)"
+    severity: high
+    mitre_tactics: ["Defense Evasion", "Execution"]
+    mitre_techniques: ["T1059.001", "T1027"]
+    query: |
+      #event_simpleName=ProcessRollup2
+      | FileName=/powershell/i
+      | CommandLine=/-enc|-encodedcommand|-e /i
+      | select([Timestamp, ComputerName, UserName, CommandLine, ParentBaseFileName])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "7d"
+
+  suspicious_cmd_execution:
+    name: "Suspicious CMD Execution"
+    description: "CMD.exe spawned by unusual parent processes"
+    severity: medium
+    mitre_tactics: ["Execution"]
+    mitre_techniques: ["T1059.003"]
+    query: |
+      #event_simpleName=ProcessRollup2
+      | FileName=cmd.exe
+      | !in(ParentBaseFileName, values=["explorer.exe", "cmd.exe", "powershell.exe", "svchost.exe"])
+      | select([Timestamp, ComputerName, UserName, CommandLine, ParentBaseFileName])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "24h"
+
+  rare_network_destinations:
+    name: "Rare Network Destinations"
+    description: "Outbound connections to rarely seen IP addresses"
+    severity: medium
+    mitre_tactics: ["Command and Control"]
+    query: |
+      #event_simpleName=NetworkConnectIP4
+      | groupBy(RemoteIP, function=count())
+      | sort(_count, order=asc)
+      | head(100)
+    parameters: []
+    time_range: "7d"
+
+  lateral_movement_ports:
+    name: "Potential Lateral Movement"
+    description: "Network connections on common lateral movement ports (RDP, SMB, WMI)"
+    severity: high
+    mitre_tactics: ["Lateral Movement"]
+    mitre_techniques: ["T1021"]
+    query: |
+      #event_simpleName=NetworkConnectIP4
+      | in(RemotePort, values=[3389, 445, 135, 5985, 5986, 22])
+      | groupBy([LocalAddressIP4, RemoteAddressIP4, RemotePort], function=count())
+      | sort(_count, order=desc)
+    parameters: []
+    time_range: "24h"
+
+  dns_tunneling_suspect:
+    name: "DNS Tunneling Indicators"
+    description: "Long DNS queries that may indicate DNS tunneling"
+    severity: high
+    mitre_tactics: ["Exfiltration", "Command and Control"]
+    mitre_techniques: ["T1048", "T1071.004"]
+    query: |
+      #event_simpleName=DnsRequest
+      | eval(query_length = length(DomainName))
+      | query_length > 50
+      | groupBy(DomainName, function=count())
+      | sort(_count, order=desc)
+    parameters: []
+    time_range: "24h"
+
+  new_scheduled_tasks:
+    name: "New Scheduled Tasks"
+    description: "Recently created scheduled tasks (persistence mechanism)"
+    severity: medium
+    mitre_tactics: ["Persistence"]
+    mitre_techniques: ["T1053.005"]
+    query: |
+      #event_simpleName=ScheduledTaskRegistered
+      | select([Timestamp, ComputerName, UserName, TaskName, TaskExecCommand])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "7d"
+
+  new_services:
+    name: "New Service Installation"
+    description: "Recently installed Windows services"
+    severity: medium
+    mitre_tactics: ["Persistence"]
+    mitre_techniques: ["T1543.003"]
+    query: |
+      #event_simpleName=NewServiceCreated
+      | select([Timestamp, ComputerName, ServiceName, ServiceFileName, ServiceType])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "7d"
+
+# ============================================================================
+# IOC HUNTING TEMPLATES
+# Queries for searching specific indicators
+# ============================================================================
+ioc_hunting:
+  check_ip:
+    name: "Hunt IP Address"
+    description: "Search for connections to/from specific IP address"
+    severity: variable
+    query: |
+      #event_simpleName=NetworkConnectIP4
+      | RemoteAddressIP4="{{ip_address}}" OR LocalAddressIP4="{{ip_address}}"
+      | select([Timestamp, ComputerName, LocalAddressIP4, RemoteAddressIP4, RemotePort])
+      | sort(Timestamp, order=desc)
+    parameters:
+      - name: ip_address
+        type: string
+        required: true
+        description: "IP address to search for"
+    time_range: "30d"
+
+  check_hash:
+    name: "Hunt File Hash"
+    description: "Search for file executions by SHA256 hash"
+    severity: variable
+    query: |
+      #event_simpleName=ProcessRollup2
+      | SHA256HashData="{{hash}}"
+      | select([Timestamp, ComputerName, UserName, FileName, CommandLine, FilePath])
+      | sort(Timestamp, order=desc)
+    parameters:
+      - name: hash
+        type: string
+        required: true
+        description: "SHA256 hash to search for"
+    time_range: "30d"
+
+  check_domain:
+    name: "Hunt Domain"
+    description: "Search for DNS queries to specific domain"
+    severity: variable
+    query: |
+      #event_simpleName=DnsRequest
+      | DomainName=*{{domain}}*
+      | select([Timestamp, ComputerName, DomainName, ContextProcessId])
+      | sort(Timestamp, order=desc)
+    parameters:
+      - name: domain
+        type: string
+        required: true
+        description: "Domain or subdomain to search for"
+    time_range: "30d"
+
+  check_filename:
+    name: "Hunt Filename"
+    description: "Search for process executions by filename"
+    severity: variable
+    query: |
+      #event_simpleName=ProcessRollup2
+      | FileName=/{{filename}}/i
+      | select([Timestamp, ComputerName, UserName, FileName, CommandLine, FilePath])
+      | sort(Timestamp, order=desc)
+    parameters:
+      - name: filename
+        type: string
+        required: true
+        description: "Filename pattern to search for"
+    time_range: "30d"
+
+  threat_intel_ip_check:
+    name: "Check IPs Against Threat Intel"
+    description: "Validate IP addresses against CrowdStrike IOC database"
+    severity: high
+    query: |
+      #event_simpleName=NetworkConnectIP4
+      | ioc:lookup(field=RemoteAddressIP4, type="ip_address")
+      | ioc.indicator.malicious=true
+      | select([Timestamp, ComputerName, RemoteAddressIP4, ioc.indicator.confidence, ioc.indicator.labels])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "7d"
+
+  threat_intel_hash_check:
+    name: "Check Hashes Against Threat Intel"
+    description: "Validate file hashes against CrowdStrike IOC database"
+    severity: high
+    query: |
+      #event_simpleName=ProcessRollup2
+      | ioc:lookup(field=SHA256HashData, type="sha256")
+      | ioc.indicator.malicious=true
+      | select([Timestamp, ComputerName, FileName, SHA256HashData, ioc.indicator.confidence])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "7d"
+
+# ============================================================================
+# INCIDENT RESPONSE TEMPLATES
+# Queries for investigating security incidents
+# ============================================================================
+incident_response:
+  user_activity_timeline:
+    name: "User Activity Timeline"
+    description: "Complete activity timeline for specific user"
+    severity: info
+    query: |
+      UserName="{{username}}"
+      | select([Timestamp, event_simpleName, ComputerName, CommandLine, FileName])
+      | sort(Timestamp, order=asc)
+    parameters:
+      - name: username
+        type: string
+        required: true
+        description: "Username to investigate"
+    time_range: "7d"
+
+  host_activity_timeline:
+    name: "Host Activity Timeline"
+    description: "Complete activity timeline for specific host"
+    severity: info
+    query: |
+      ComputerName="{{hostname}}"
+      | select([Timestamp, event_simpleName, UserName, CommandLine, FileName])
+      | sort(Timestamp, order=asc)
+    parameters:
+      - name: hostname
+        type: string
+        required: true
+        description: "Hostname to investigate"
+    time_range: "7d"
+
+  process_tree:
+    name: "Process Execution Tree"
+    description: "View process parent-child relationships on a host"
+    severity: info
+    query: |
+      #event_simpleName=ProcessRollup2
+      | ComputerName="{{hostname}}"
+      | select([Timestamp, ParentBaseFileName, FileName, CommandLine, UserName, ProcessId, ParentProcessId])
+      | sort(Timestamp, order=asc)
+    parameters:
+      - name: hostname
+        type: string
+        required: true
+        description: "Hostname to investigate"
+    time_range: "24h"
+
+  network_activity:
+    name: "Host Network Activity"
+    description: "All network connections from specific host"
+    severity: info
+    query: |
+      #event_simpleName=NetworkConnectIP4
+      | ComputerName="{{hostname}}"
+      | select([Timestamp, LocalAddressIP4, RemoteAddressIP4, RemotePort, ContextProcessId])
+      | sort(Timestamp, order=desc)
+    parameters:
+      - name: hostname
+        type: string
+        required: true
+        description: "Hostname to investigate"
+    time_range: "24h"
+
+  dns_activity:
+    name: "Host DNS Activity"
+    description: "All DNS queries from specific host"
+    severity: info
+    query: |
+      #event_simpleName=DnsRequest
+      | ComputerName="{{hostname}}"
+      | select([Timestamp, DomainName, ContextProcessId])
+      | sort(Timestamp, order=desc)
+    parameters:
+      - name: hostname
+        type: string
+        required: true
+        description: "Hostname to investigate"
+    time_range: "24h"
+
+  authentication_events:
+    name: "Authentication Events"
+    description: "Login/logoff events for user or host"
+    severity: info
+    query: |
+      #event_simpleName=/*Logon|*Logoff/
+      | ComputerName="{{hostname}}" OR UserName="{{username}}"
+      | select([Timestamp, event_simpleName, ComputerName, UserName, LogonType])
+      | sort(Timestamp, order=desc)
+    parameters:
+      - name: hostname
+        type: string
+        required: false
+        description: "Hostname to filter"
+      - name: username
+        type: string
+        required: false
+        description: "Username to filter"
+    time_range: "7d"
+
+# ============================================================================
+# BASELINE AND ANOMALY TEMPLATES
+# Queries for establishing baselines and detecting anomalies
+# ============================================================================
+baseline:
+  process_baseline:
+    name: "Process Execution Baseline"
+    description: "Most common processes executed in environment"
+    severity: info
+    query: |
+      #event_simpleName=ProcessRollup2
+      | groupBy(FileName, function=count())
+      | sort(_count, order=desc)
+      | head(100)
+    parameters: []
+    time_range: "7d"
+
+  user_login_patterns:
+    name: "User Login Patterns"
+    description: "Login frequency by user"
+    severity: info
+    query: |
+      #event_simpleName=UserLogon
+      | groupBy(UserName, function=count())
+      | sort(_count, order=desc)
+    parameters: []
+    time_range: "7d"
+
+  network_destination_baseline:
+    name: "Network Destination Baseline"
+    description: "Most common network destinations"
+    severity: info
+    query: |
+      #event_simpleName=NetworkConnectIP4
+      | groupBy(RemoteAddressIP4, function=count())
+      | sort(_count, order=desc)
+      | head(100)
+    parameters: []
+    time_range: "7d"
+
+  dns_query_baseline:
+    name: "DNS Query Baseline"
+    description: "Most queried domains"
+    severity: info
+    query: |
+      #event_simpleName=DnsRequest
+      | groupBy(DomainName, function=count())
+      | sort(_count, order=desc)
+      | head(100)
+    parameters: []
+    time_range: "7d"
+
+# ============================================================================
+# COMPLIANCE AND AUDIT TEMPLATES
+# Queries for compliance monitoring
+# ============================================================================
+compliance:
+  privileged_account_usage:
+    name: "Privileged Account Activity"
+    description: "Activity from privileged/admin accounts"
+    severity: info
+    query: |
+      UserName=/admin|root|administrator/i
+      | groupBy([UserName, event_simpleName], function=count())
+      | sort(_count, order=desc)
+    parameters: []
+    time_range: "7d"
+
+  failed_logins:
+    name: "Failed Login Attempts"
+    description: "Failed authentication attempts"
+    severity: medium
+    query: |
+      #event_simpleName=UserLogonFailed
+      | groupBy([UserName, ComputerName], function=count())
+      | sort(_count, order=desc)
+    parameters: []
+    time_range: "24h"
+
+  account_creation:
+    name: "New Account Creation"
+    description: "Recently created user accounts"
+    severity: medium
+    query: |
+      #event_simpleName=UserAccountCreated
+      | select([Timestamp, ComputerName, UserName, TargetUserName])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "30d"
+
+  password_changes:
+    name: "Password Change Events"
+    description: "Password change activity"
+    severity: info
+    query: |
+      #event_simpleName=/*Password*/
+      | select([Timestamp, ComputerName, UserName, event_simpleName])
+      | sort(Timestamp, order=desc)
+    parameters: []
+    time_range: "7d"
+
+# ============================================================================
+# STATISTICS AND OVERVIEW TEMPLATES
+# Queries for dashboards and reporting
+# ============================================================================
+statistics:
+  event_volume:
+    name: "Event Volume Over Time"
+    description: "Event count trend over time"
+    severity: info
+    query: |
+      bucket(span=1h, function=count())
+    parameters: []
+    time_range: "24h"
+
+  top_event_types:
+    name: "Top Event Types"
+    description: "Most common event types"
+    severity: info
+    query: |
+      groupBy(event_simpleName, function=count())
+      | sort(_count, order=desc)
+      | head(20)
+    parameters: []
+    time_range: "24h"
+
+  top_users:
+    name: "Most Active Users"
+    description: "Users with most events"
+    severity: info
+    query: |
+      groupBy(UserName, function=count())
+      | sort(_count, order=desc)
+      | head(20)
+    parameters: []
+    time_range: "24h"
+
+  top_hosts:
+    name: "Most Active Hosts"
+    description: "Hosts with most events"
+    severity: info
+    query: |
+      groupBy(ComputerName, function=count())
+      | sort(_count, order=desc)
+      | head(20)
+    parameters: []
+    time_range: "24h"

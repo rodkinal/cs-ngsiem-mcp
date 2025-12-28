@@ -10,6 +10,9 @@ python-dotenv>=1.0.0
 # Data validation
 pydantic>=2.0.0
 
+# YAML parsing for query catalogs
+PyYAML>=6.0
+
 # Testing (optional)
 pytest>=7.0.0
 pytest-asyncio>=0.21.0

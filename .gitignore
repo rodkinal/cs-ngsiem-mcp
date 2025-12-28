@@ -1,6 +1,9 @@
 # Environment variables with secrets
 .env
 
+# Repository configuration (may contain sensitive names)
+#config/repositories.yaml
+
 # Python
 __pycache__/
 *.py[cod]
@@ -31,3 +34,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Bash
+*.sh
