@@ -41,6 +41,7 @@ class QueryCatalog:
         self._functions: dict = {}
         self._syntax: dict = {}
         self._templates: dict = {}
+        self._best_practices: dict = {}
         
         self._load_catalogs()
     
@@ -49,11 +50,14 @@ class QueryCatalog:
         self._functions = self._load_yaml("ngsiem_functions.yaml")
         self._syntax = self._load_yaml("ngsiem_syntax.yaml")
         self._templates = self._load_yaml("ngsiem_templates.yaml")
+        self._best_practices = self._load_yaml("ngsiem_best_practices.yaml")
         
+        bp_steps = len(self._best_practices.get("query_pipeline", {}).get("steps", []))
         logger.info(
             f"Loaded query catalog: "
             f"{self._count_functions()} functions, "
-            f"{self._count_templates()} templates"
+            f"{self._count_templates()} templates, "
+            f"{bp_steps} pipeline steps"
         )
     
     def _load_yaml(self, filename: str) -> dict:
@@ -378,6 +382,64 @@ class QueryCatalog:
             if repo.get("default", False):
                 return repo.get("name")
         return repos[0].get("name") if repos else None
+    
+    # =========================================================================
+    # BEST PRACTICES ACCESS
+    # =========================================================================
+    
+    def get_query_pipeline(self) -> list[dict]:
+        """
+        Get the query construction pipeline steps.
+        
+        Returns:
+            List of pipeline steps in recommended order.
+        """
+        pipeline = self._best_practices.get("query_pipeline", {})
+        return pipeline.get("steps", [])
+    
+    def get_optimization_tips(self) -> list[dict]:
+        """
+        Get query optimization tips.
+        
+        Returns:
+            List of optimization tip objects.
+        """
+        return self._best_practices.get("optimization_tips", [])
+    
+    def get_anti_patterns(self) -> list[dict]:
+        """
+        Get common anti-patterns to avoid.
+        
+        Returns:
+            List of anti-pattern objects with bad/good examples.
+        """
+        return self._best_practices.get("anti_patterns", [])
+    
+    def get_efficient_patterns(self) -> list[dict]:
+        """
+        Get efficient query patterns.
+        
+        Returns:
+            List of efficient pattern objects.
+        """
+        return self._best_practices.get("efficient_patterns", [])
+    
+    def get_best_practices_summary(self) -> dict:
+        """
+        Get a complete summary of best practices for LLM context.
+        
+        Returns:
+            Dictionary with pipeline, tips, patterns, and anti-patterns.
+        """
+        pipeline = self._best_practices.get("query_pipeline", {})
+        return {
+            "description": pipeline.get("description", ""),
+            "template": pipeline.get("template", ""),
+            "pipeline_steps": self.get_query_pipeline(),
+            "optimization_tips": self.get_optimization_tips(),
+            "efficient_patterns": self.get_efficient_patterns(),
+            "anti_patterns": self.get_anti_patterns()
+        }
 
 
 # Singleton instance for shared access

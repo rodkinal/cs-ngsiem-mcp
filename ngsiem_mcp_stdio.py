@@ -342,6 +342,21 @@ async def list_tools() -> list[Tool]:
             ),
             inputSchema=GetRepoFieldsetArgs.model_json_schema()
         ),
+        Tool(
+            name="get_query_best_practices",
+            description=(
+                "Get NGSIEM query writing best practices for optimal performance. "
+                "Returns the 8-step query construction pipeline (from Humio documentation), "
+                "optimization tips, efficient patterns, and common anti-patterns to avoid. "
+                "Use this to learn how to structure queries for maximum efficiency: "
+                "tag filters first, then field filters, then transformations, then aggregations."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
     ]
 
 
@@ -756,6 +771,45 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
                 response_text = f"❌ **Validation Error**\n\n{str(e)}"
             except RuntimeError as e:
                 response_text = f"❌ **API Error**\n\n{str(e)}"
+        
+        elif name == "get_query_best_practices":
+            catalog = get_catalog()
+            summary = catalog.get_best_practices_summary()
+            
+            response_text = "📖 **NGSIEM Query Best Practices**\n\n"
+            response_text += f"{summary.get('description', '')}\n\n"
+            response_text += f"**Template:** `{summary.get('template', '')}`\n\n"
+            
+            # Pipeline steps
+            response_text += "## Query Construction Pipeline\n\n"
+            response_text += "Follow these steps IN ORDER for optimal query performance:\n\n"
+            for step in summary.get('pipeline_steps', []):
+                response_text += f"### {step.get('order')}. {step.get('name')}\n\n"
+                response_text += f"{step.get('description', '')}\n\n"
+                if step.get('rationale'):
+                    response_text += f"*Why:* {step.get('rationale')}\n\n"
+                if step.get('examples'):
+                    response_text += "**Examples:**\n```\n"
+                    for ex in step['examples'][:3]:
+                        response_text += f"{ex}\n"
+                    response_text += "```\n\n"
+            
+            # Optimization tips
+            response_text += "## Optimization Tips\n\n"
+            for tip in summary.get('optimization_tips', []):
+                response_text += f"### {tip.get('title', '')}\n\n"
+                response_text += f"{tip.get('description', '')}\n\n"
+                if tip.get('impact'):
+                    response_text += f"**Impact:** {tip.get('impact')}\n\n"
+            
+            # Anti-patterns
+            if summary.get('anti_patterns'):
+                response_text += "## Anti-Patterns to Avoid\n\n"
+                for ap in summary['anti_patterns']:
+                    response_text += f"**{ap.get('name', '')}**\n"
+                    response_text += f"- ❌ Bad: `{ap.get('bad', '')}`\n"
+                    response_text += f"- ✅ Good: `{ap.get('good', '')}`\n"
+                    response_text += f"- Issue: {ap.get('issue', '')}\n\n"
         
         else:
             raise ValueError(f"Unknown tool: {name}")

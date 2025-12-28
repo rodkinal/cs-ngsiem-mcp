@@ -345,6 +345,34 @@ Build queries from templates with parameters.
 
 **Security**: Repository name is validated against injection attacks (alphanumeric, underscores, hyphens only)
 
+### 11. get_query_best_practices
+
+Get NGSIEM query writing best practices for optimal performance.
+
+**Parameters**: None
+
+**Returns**: 
+- 8-step query construction pipeline (based on Humio/LogScale documentation)
+- Optimization tips (tag specificity, limit placement, case sensitivity)
+- Efficient patterns with examples
+- Anti-patterns to avoid
+
+**Use Case**: Learn how to structure queries for maximum efficiency
+
+**Query Pipeline** (execute in order):
+```
+tag-filters | field-filters | transformations | aggregate | visualization
+```
+
+1. **Narrow Timeframe** - Reduce search scope
+2. **Tag Filters First** - Use `#field` syntax for indexed fields (30x faster)
+3. **Field Value Filters** - Filter by specific values
+4. **Exclusion Filters** - Remove unwanted results
+5. **Regex Filters** - Pattern matching (use sparingly)
+6. **Transformations** - eval, format, parse functions
+7. **Aggregations** - count, sum, groupBy, etc.
+8. **Visualization** - sort, table, head for output
+
 ## Available Resources
 
 ### ngsiem://repositories
@@ -460,6 +488,9 @@ graph LR
 | `MCP_HTTP_APP_LOG` | Application Log Path | `ngsiem-mcp-app.log` | No |
 | `MCP_CORS_ORIGINS` | CORS Allowed Origins | `*` or `http://localhost:3000` | No |
 | `NGSIEM_THREAD_POOL_SIZE` | Max threads for blocking API calls | `4` | No |
+| `MCP_SKIP_AUTH` | Bypass auth for dev testing | `true` | No |
+
+> **Note**: `MCP_SKIP_AUTH=true` disables authentication entirely. Only use for development with MCP Inspector (which has a known bug that prevents header forwarding).
 
 ### Regional Endpoints
 

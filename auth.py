@@ -18,11 +18,17 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 logger = logging.getLogger(__name__)
 
+# Check for development skip-auth mode
+# WARNING: Only use for development with MCP Inspector (known header forwarding bug)
+SKIP_AUTH = os.environ.get("MCP_SKIP_AUTH", "").lower() in ("true", "1", "yes")
+if SKIP_AUTH:
+    logger.warning("⚠️  MCP_SKIP_AUTH is enabled - authentication is DISABLED. DO NOT USE IN PRODUCTION!")
+
 # Security scheme for OpenAPI documentation
 security_scheme = HTTPBearer(
     scheme_name="Bearer Token",
     description="API key for authentication. Set via MCP_API_KEY environment variable.",
-    auto_error=True
+    auto_error=not SKIP_AUTH  # Don't auto-error if skip mode is enabled
 )
 
 
@@ -52,7 +58,7 @@ def get_api_key() -> str:
 
 
 async def verify_bearer_token(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security_scheme)]
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security_scheme)] = None
 ) -> str:
     """
     Validate Bearer token from Authorization header.
@@ -78,6 +84,19 @@ async def verify_bearer_token(
         async def protected_route(token: str = Depends(verify_bearer_token)):
             return {"status": "authenticated"}
     """
+    # Development mode: skip authentication (for MCP Inspector testing)
+    if SKIP_AUTH:
+        logger.debug("SKIP_AUTH enabled - bypassing authentication")
+        return "skip-auth-development-token"
+    
+    # No credentials provided and not in skip mode
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    
     try:
         expected_token = get_api_key()
     except RuntimeError as e:

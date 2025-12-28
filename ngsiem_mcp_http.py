@@ -419,7 +419,41 @@ async def process_mcp_request(request: JsonRpcRequest, protocol_version: str) ->
 
 
 async def handle_initialize(params: dict, protocol_version: str) -> dict:
-    """Handle MCP initialize request."""
+    """
+    Handle MCP initialize request.
+    
+    Returns server capabilities and instructions including query best practices
+    to guide the LLM on optimal query construction.
+    """
+    from ngsiem_query_catalog import get_catalog
+    
+    # Build instructions with best practices summary
+    catalog = get_catalog()
+    bp_summary = catalog.get_best_practices_summary()
+    
+    # Construct concise instructions for the LLM
+    instructions = (
+        "NGSIEM MCP Server - CrowdStrike LogScale Query Interface\n\n"
+        "## Query Construction Best Practices\n\n"
+        f"**Template:** `{bp_summary.get('template', '')}`\n\n"
+        "**Follow this order for optimal performance:**\n"
+    )
+    
+    for step in bp_summary.get('pipeline_steps', []):
+        instructions += f"{step.get('order')}. **{step.get('name')}**: {step.get('description')}\n"
+    
+    instructions += (
+        "\n## Key Optimization Tips\n"
+        "- Use specific tags (#event_simpleName) over general tags (#kind) - 30x improvement\n"
+        "- Apply limits BEFORE transformations to reduce CPU cost\n"
+        "- Use /pattern/i for case-insensitive matching\n"
+        "\n## Available Tools\n"
+        "- `get_repo_fieldset` - MANDATORY first step, discover valid fields\n"
+        "- `get_query_best_practices` - Full best practices reference\n"
+        "- `search_and_wait` - Execute queries and wait for results\n"
+        "- `validate_query` - Check query syntax before execution\n"
+    )
+    
     return {
         "protocolVersion": protocol_version,
         "capabilities": {
@@ -429,7 +463,8 @@ async def handle_initialize(params: dict, protocol_version: str) -> dict:
         "serverInfo": {
             "name": "ngsiem-mcp-server",
             "version": "2.0.0"
-        }
+        },
+        "instructions": instructions
     }
 
 

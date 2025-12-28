@@ -233,3 +233,96 @@ flowchart TD
 *   **Mechanism**: `get_repo_fieldset` Tool
 *   **Policy**: The System Prompt instructs the LLM to call `get_repo_fieldset` *before* searching.
 *   **Validation**: This tool returns the **authoritative** list of fields for a repository, preventing the LLM from guessing (hallucinating) field names that don't exist in the specific log source.
+
+## 6. Query Best Practices (Automatic LLM Guidance)
+
+The server automatically provides query optimization guidance to LLMs upon connection via the `instructions` field in the `initialize` response.
+
+### Initialize Response Enhancement
+
+When an LLM connects, the server returns:
+
+```json
+{
+  "result": {
+    "protocolVersion": "2025-11-25",
+    "serverInfo": {"name": "ngsiem-mcp-server", "version": "2.0.0"},
+    "instructions": "...Query Construction Best Practices..."
+  }
+}
+```
+
+### Query Construction Pipeline
+
+The server instructs LLMs to follow this 8-step pipeline (based on Humio/LogScale documentation):
+
+```mermaid
+flowchart LR
+    A[1. Timeframe] --> B[2. Tag Filters]
+    B --> C[3. Field Filters]
+    C --> D[4. Exclusions]
+    D --> E[5. Regex]
+    E --> F[6. Transform]
+    F --> G[7. Aggregate]
+    G --> H[8. Visualize]
+    
+    style A fill:#e8f5e9
+    style B fill:#e8f5e9
+    style C fill:#fff3e0
+    style D fill:#fff3e0
+    style E fill:#fffde7
+    style F fill:#e3f2fd
+    style G fill:#e3f2fd
+    style H fill:#e3f2fd
+```
+
+| Step | Description | Performance Impact |
+|------|-------------|-------------------|
+| 1. Narrow Timeframe | Reduce search window | High |
+| 2. Tag Filters | Use `#field` syntax | **30x faster** than general filters |
+| 3. Field Value Filters | Filter by specific values | Medium |
+| 4. Exclusion Filters | Remove unwanted results | Medium |
+| 5. Regex Filters | Pattern matching | Low (expensive) |
+| 6. Transformations | eval, format, parse | CPU cost |
+| 7. Aggregations | count, sum, groupBy | Variable |
+| 8. Visualization | sort, table, head | Final step |
+
+### Best Practices Tool
+
+LLMs can also explicitly request the full best practices reference:
+
+```
+Tool: get_query_best_practices
+Parameters: None
+Returns: Complete pipeline, optimization tips, efficient patterns, anti-patterns
+```
+
+## 7. Development Mode (MCP Inspector)
+
+### Known Issue: MCP Inspector Auth Bug
+
+The MCP Inspector SDK has a known bug where `--header` flags authenticate to the proxy, but headers are **not forwarded** to the actual MCP server.
+
+### Workaround: Skip Auth Mode
+
+For development/testing with MCP Inspector:
+
+```bash
+# Start server with authentication bypassed
+MCP_SKIP_AUTH=true ./start_http_server.sh
+```
+
+Server logs will show:
+```
+⚠️  MCP_SKIP_AUTH is enabled - authentication is DISABLED. DO NOT USE IN PRODUCTION!
+```
+
+> **WARNING**: Never use `MCP_SKIP_AUTH=true` in production. This completely disables authentication.
+
+### Production Clients
+
+Production clients (Claude Desktop, custom clients) should always use proper Bearer authentication:
+
+```
+Authorization: Bearer <MCP_API_KEY>
+```

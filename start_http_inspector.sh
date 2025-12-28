@@ -36,6 +36,10 @@ SERVER_URL="http://localhost:$PORT/mcp"
 echo -e "Target Server: ${BLUE}$SERVER_URL${NC}"
 echo -e "Transport:     ${BLUE}Streamable HTTP (2025-11-25)${NC}"
 echo ""
+echo -e "${RED}⚠  NOTE: MCP Inspector has a known bug - it doesn't forward auth headers.${NC}"
+echo -e "${RED}   Run the server with MCP_SKIP_AUTH=true for inspector testing:${NC}"
+echo -e "${RED}   MCP_SKIP_AUTH=true ./start_http_server.sh${NC}"
+echo ""
 
 # Cleanup stale inspector processes
 # Default Inspector ports: 6277 (Proxy), 6274 (Client)
@@ -60,6 +64,9 @@ fi
 echo ""
 
 # Launch Inspector
+echo "Starting inspector with API Key (first 10 chars): ${MCP_API_KEY:0:10}..."
+echo ""
+
 npx @modelcontextprotocol/inspector \
   --transport http \
   --server-url "$SERVER_URL" \
