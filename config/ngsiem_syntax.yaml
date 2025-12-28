@@ -1,0 +1,366 @@
+# NGSIEM Query Language Syntax Reference
+# Documentation: https://library.humio.com/data-analysis/syntax.html
+
+version: "1.0.0"
+last_updated: "2025-12-27"
+
+# ============================================================================
+# PIPE SYNTAX
+# Fundamental chaining mechanism for queries
+# ============================================================================
+pipes:
+  description: "Chain commands using the pipe operator (|)"
+  syntax: "command1 | command2 | command3"
+  notes:
+    - "Each command receives output from the previous command"
+    - "Execution flows left to right"
+    - "Pipes can span multiple lines for readability"
+  examples:
+    - query: "#event_simpleName=ProcessRollup2 | count()"
+      description: "Filter then count"
+    - query: |
+        #event_simpleName=ProcessRollup2
+        | FileName=*powershell*
+        | groupBy(UserName)
+        | sort(order=desc)
+      description: "Multi-line pipeline"
+
+# ============================================================================
+# FIELD FILTERS
+# Operators for filtering events by field values
+# ============================================================================
+field_filters:
+  equals:
+    syntax: "field=value"
+    description: "Exact match"
+    examples:
+      - "UserName=admin"
+      - "StatusCode=200"
+      - "#event_simpleName=ProcessRollup2"
+
+  not_equals:
+    syntax: "field!=value"
+    description: "Not equal"
+    examples:
+      - "UserName!=system"
+      - "StatusCode!=404"
+
+  wildcard:
+    syntax: "field=*pattern* OR field=pattern*"
+    description: "Wildcard matching with asterisk"
+    examples:
+      - "UserName=admin*"
+      - "FileName=*powershell*"
+      - "CommandLine=*-enc*"
+    notes:
+      - "* matches any characters"
+      - "? matches single character"
+
+  regex:
+    syntax: "field=/pattern/ OR field=/pattern/flags"
+    description: "Regular expression matching"
+    flags:
+      - "i: case-insensitive"
+      - "m: multiline"
+    examples:
+      - "UserName=/^admin.*/"
+      - "CommandLine=/powershell/i"
+      - 'FileName=/\\.exe$/i'
+
+  greater_than:
+    syntax: "field > value"
+    description: "Numeric greater than"
+    examples:
+      - "BytesSent > 1000000"
+      - "Duration > 60"
+
+  less_than:
+    syntax: "field < value"
+    description: "Numeric less than"
+    examples:
+      - "ResponseTime < 100"
+
+  greater_equal:
+    syntax: "field >= value"
+    description: "Greater than or equal"
+    examples:
+      - "StatusCode >= 400"
+
+  less_equal:
+    syntax: "field <= value"
+    description: "Less than or equal"
+    examples:
+      - "StatusCode <= 299"
+
+  in_range:
+    syntax: "field >= start AND field <= end"
+    description: "Value within range"
+    examples:
+      - "StatusCode >= 200 AND StatusCode < 300"
+      - "BytesSent >= 1000 AND BytesSent <= 10000"
+
+# ============================================================================
+# LOGICAL OPERATORS
+# Combine multiple conditions
+# ============================================================================
+logical_operators:
+  and:
+    syntax: "condition1 AND condition2"
+    alternatives: ["condition1 condition2"]
+    description: "Both conditions must match"
+    examples:
+      - "UserName=admin AND ComputerName=server1"
+      - "UserName=admin ComputerName=server1"
+
+  or:
+    syntax: "condition1 OR condition2"
+    description: "Either condition matches"
+    examples:
+      - "UserName=admin OR UserName=root"
+      - "StatusCode=404 OR StatusCode=500"
+
+  not:
+    syntax: "NOT condition OR !condition"
+    description: "Negate condition"
+    examples:
+      - "NOT UserName=system"
+      - "!in(event_simpleName, values=[Heartbeat])"
+
+  grouping:
+    syntax: "(condition1 OR condition2) AND condition3"
+    description: "Use parentheses to group conditions"
+    examples:
+      - "(UserName=admin OR UserName=root) AND ComputerName=server1"
+
+# ============================================================================
+# SPECIAL FIELD PREFIXES
+# CrowdStrike event type identifiers
+# ============================================================================
+event_types:
+  description: "Use # prefix to filter by event type (event_simpleName)"
+  syntax: "#event_simpleName=EventType"
+  common_events:
+    process:
+      - name: "ProcessRollup2"
+        description: "Process execution events"
+      - name: "SyntheticProcessRollup2"
+        description: "Synthetic process events"
+    network:
+      - name: "NetworkConnectIP4"
+        description: "IPv4 network connections"
+      - name: "NetworkConnectIP6"
+        description: "IPv6 network connections"
+      - name: "DnsRequest"
+        description: "DNS queries"
+    authentication:
+      - name: "UserLogon"
+        description: "User logon events"
+      - name: "UserLogoff"
+        description: "User logoff events"
+      - name: "UserAccountCreated"
+        description: "New account creation"
+    file:
+      - name: "FileWritten"
+        description: "File write operations"
+      - name: "DirectoryCreated"
+        description: "Directory creation"
+      - name: "ExecutableDeleted"
+        description: "Executable deletion"
+    registry:
+      - name: "RegistryOperationType"
+        description: "Registry modifications"
+  examples:
+    - "#event_simpleName=ProcessRollup2"
+    - "#event_simpleName=NetworkConnectIP4"
+    - "#event_simpleName=/.*Logon.*/"
+
+# ============================================================================
+# COMMENTS
+# Documenting queries
+# ============================================================================
+comments:
+  single_line:
+    syntax: "// comment text"
+    description: "Single line comment"
+    examples:
+      - "// Filter for admin users"
+      - "UserName=admin // only admin accounts"
+
+  multi_line:
+    syntax: "/* comment text */"
+    description: "Multi-line comment"
+    examples:
+      - |
+        /* 
+          This query finds all PowerShell executions
+          by admin users in the last 24 hours
+        */
+        #event_simpleName=ProcessRollup2 | FileName=*powershell*
+
+# ============================================================================
+# FIELD ASSIGNMENT
+# Creating and modifying fields
+# ============================================================================
+field_assignment:
+  inline:
+    syntax: "newField := expression"
+    description: "Assign expression result to new field"
+    examples:
+      - "duration_seconds := Duration / 1000"
+      - 'user_type := if(UserName=admin, "privileged", "standard")'
+
+  using_as:
+    syntax: "function(..., as=newFieldName)"
+    description: "Many functions support as parameter"
+    examples:
+      - "count(as=event_count)"
+      - "avg(field=Duration, as=avg_duration)"
+
+  using_eval:
+    syntax: "eval(newField = expression)"
+    description: "Create fields with eval function"
+    examples:
+      - "eval(duration_ms = Duration * 1000)"
+      - 'eval(status_category = if(Status < 400, "success", "error"))'
+
+# ============================================================================
+# TIME SYNTAX
+# Relative and absolute time specifications
+# ============================================================================
+time:
+  relative:
+    description: "Relative time from now"
+    format: "number + unit"
+    units:
+      - s: seconds
+      - m: minutes
+      - h: hours
+      - d: days
+      - w: weeks
+      - M: months
+    examples:
+      - "1d"   # 1 day ago
+      - "24h"  # 24 hours ago
+      - "30m"  # 30 minutes ago
+      - "7d"   # 7 days ago
+      - "2w"   # 2 weeks ago
+      - "1M"   # 1 month ago
+
+  absolute:
+    description: "Specific timestamp"
+    format: "ISO 8601"
+    examples:
+      - "2025-01-01T00:00:00Z"
+      - "2025-12-27T15:30:00+01:00"
+
+  in_query:
+    description: "Time filtering within query"
+    examples:
+      - "@timestamp > now() - 1h"
+      - "@timestamp >= 2025-01-01"
+
+# ============================================================================
+# ARRAY SYNTAX
+# Working with array fields
+# ============================================================================
+arrays:
+  indexing:
+    syntax: "field[index]"
+    description: "Access array element by index (0-based)"
+    examples:
+      - "Tags[0]"
+      - "IPAddresses[1]"
+
+  slicing:
+    syntax: "field[start:end]"
+    description: "Get array slice"
+    examples:
+      - "Items[0:5]"
+      - "Items[2:]"
+
+  length:
+    syntax: "array:length(field)"
+    description: "Get array length"
+    examples:
+      - "array:length(Tags) > 0"
+
+# ============================================================================
+# CONDITIONAL EXPRESSIONS
+# Conditional logic in queries
+# ============================================================================
+conditionals:
+  if_else:
+    syntax: 'if(condition, then_value, else_value)'
+    description: "Inline conditional"
+    examples:
+      - 'if(Status < 400, "success", "error")'
+      - 'if(BytesSent > 1000000, "large", "small")'
+
+  case:
+    syntax: |
+      case {
+        condition1 | result1;
+        condition2 | result2;
+        * | default_result
+      }
+    description: "Multiple condition matching"
+    examples:
+      - |
+        case {
+          Status < 300 | "success";
+          Status < 400 | "redirect";
+          Status < 500 | "client_error";
+          * | "server_error"
+        }
+
+  match:
+    syntax: |
+      match(field) {
+        value1 | result1;
+        value2 | result2;
+        * | default
+      }
+    description: "Match field against values"
+    examples:
+      - |
+        match(StatusCode) {
+          200 | "OK";
+          404 | "Not Found";
+          500 | "Server Error";
+          * | "Other"
+        }
+
+# ============================================================================
+# COMMON PATTERNS
+# Frequently used query patterns
+# ============================================================================
+common_patterns:
+  count_by_field:
+    pattern: "groupBy(field) | count()"
+    description: "Count events per unique field value"
+    example: "groupBy(UserName) | count() | sort(order=desc)"
+
+  top_n:
+    pattern: "groupBy(field) | count() | sort(order=desc) | head(N)"
+    description: "Find top N values by count"
+    example: "groupBy(ComputerName) | count() | sort(order=desc) | head(10)"
+
+  time_series:
+    pattern: "bucket(span=interval, function=count())"
+    description: "Events over time"
+    example: "bucket(span=1h, function=count())"
+
+  field_exists:
+    pattern: "field=* OR exists(field)"
+    description: "Filter events where field exists"
+    example: "ErrorCode=* | count()"
+
+  unique_values:
+    pattern: "groupBy(field) | count() | table(field)"
+    description: "List unique field values"
+    example: "groupBy(UserName) | table(UserName)"
+
+  filter_and_select:
+    pattern: "filter_condition | select([fields])"
+    description: "Filter then select specific fields"
+    example: "#event_simpleName=ProcessRollup2 | select([Timestamp, UserName, CommandLine])"

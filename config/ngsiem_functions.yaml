@@ -1,0 +1,661 @@
+# NGSIEM Query Functions Catalog
+# Complete reference of available NGSIEM/LogScale query functions
+# Documentation: https://library.humio.com/data-analysis/functions.html
+
+version: "1.0.0"
+last_updated: "2025-12-27"
+
+# ============================================================================
+# AGGREGATE FUNCTIONS
+# Used for grouping and aggregating event data
+# ============================================================================
+aggregate:
+  count:
+    syntax: "count([as], [distinct], [field])"
+    description: "Count events or distinct field values"
+    category: aggregate
+    parameters:
+      - name: as
+        type: string
+        optional: true
+        description: "Name for the result field"
+      - name: distinct
+        type: boolean
+        optional: true
+        description: "Count only distinct values"
+      - name: field
+        type: field_name
+        optional: true
+        description: "Field to count"
+    examples:
+      - query: "count()"
+        description: "Count all events"
+      - query: "count(field=UserName)"
+        description: "Count events with UserName field"
+      - query: "count(field=UserName, distinct=true)"
+        description: "Count unique usernames"
+      - query: "groupBy(ComputerName) | count()"
+        description: "Count events per computer"
+
+  avg:
+    syntax: "avg([as], field)"
+    description: "Calculate average value of a numeric field"
+    category: aggregate
+    parameters:
+      - name: as
+        type: string
+        optional: true
+      - name: field
+        type: field_name
+        required: true
+    examples:
+      - query: "avg(field=ResponseTime)"
+        description: "Average response time"
+      - query: "avg(field=BytesSent, as=avgBytes)"
+        description: "Average bytes with custom name"
+
+  sum:
+    syntax: "sum([as], field)"
+    description: "Calculate sum of numeric field values"
+    category: aggregate
+    parameters:
+      - name: as
+        type: string
+        optional: true
+      - name: field
+        type: field_name
+        required: true
+    examples:
+      - query: "sum(field=BytesSent)"
+        description: "Total bytes sent"
+
+  min:
+    syntax: "min([as], field)"
+    description: "Find minimum value of a field"
+    category: aggregate
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+    examples:
+      - query: "min(field=ResponseTime)"
+
+  max:
+    syntax: "max([as], field)"
+    description: "Find maximum value of a field"
+    category: aggregate
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+    examples:
+      - query: "max(field=ResponseTime)"
+
+  groupBy:
+    syntax: "groupBy(field, [function], [limit])"
+    description: "Group events by field values and optionally aggregate"
+    category: aggregate
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+        description: "Field(s) to group by"
+      - name: function
+        type: aggregate_function
+        optional: true
+        description: "Aggregation function to apply"
+      - name: limit
+        type: array
+        optional: true
+        default: [200, "max"]
+        description: "Maximum groups to return"
+    examples:
+      - query: "groupBy(UserName)"
+        description: "Group by username"
+      - query: "groupBy(ComputerName, function=count())"
+        description: "Count events per computer"
+      - query: "groupBy([UserName, ComputerName])"
+        description: "Group by multiple fields"
+      - query: "groupBy(UserName, function=[count(), avg(field=Duration)])"
+        description: "Multiple aggregations"
+
+  bucket:
+    syntax: "bucket([buckets], [field], [function], [limit], [minSpan], [span], [timezone], [unit])"
+    description: "Group events into time buckets"
+    category: aggregate
+    parameters:
+      - name: span
+        type: duration
+        optional: true
+        description: "Time span per bucket (e.g., 1h, 5m)"
+      - name: function
+        type: aggregate_function
+        optional: true
+      - name: field
+        type: field_name
+        optional: true
+    examples:
+      - query: "bucket(span=1h, function=count())"
+        description: "Count events per hour"
+      - query: "bucket(span=5m, function=avg(field=ResponseTime))"
+        description: "Average response per 5 minutes"
+
+  collect:
+    syntax: "collect(fields, [limit], [multival], [separator])"
+    description: "Collect field values into a list"
+    category: aggregate
+    parameters:
+      - name: fields
+        type: array
+        required: true
+      - name: limit
+        type: integer
+        optional: true
+      - name: separator
+        type: string
+        optional: true
+    examples:
+      - query: "groupBy(UserName) | collect([ComputerName])"
+        description: "Collect computers per user"
+
+  percentile:
+    syntax: "percentile([as], field, [percentiles])"
+    description: "Calculate percentile values"
+    category: aggregate
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+      - name: percentiles
+        type: array
+        optional: true
+        default: [50, 90, 95, 99]
+    examples:
+      - query: "percentile(field=ResponseTime)"
+        description: "Get P50, P90, P95, P99"
+      - query: "percentile(field=Duration, percentiles=[95])"
+        description: "Get specific percentile"
+
+  stdDev:
+    syntax: "stdDev([as], field)"
+    description: "Calculate standard deviation"
+    category: aggregate
+    examples:
+      - query: "stdDev(field=ResponseTime)"
+
+  variance:
+    syntax: "variance([as], field)"
+    description: "Calculate variance"
+    category: aggregate
+    examples:
+      - query: "variance(field=ResponseTime)"
+
+  top:
+    syntax: "top(field, [limit], [max], [percent], [rest], [sum])"
+    description: "Find most common values"
+    category: aggregate
+    examples:
+      - query: "top(UserName)"
+        description: "Top usernames"
+      - query: "top(ComputerName, limit=10)"
+        description: "Top 10 computers"
+
+  stats:
+    syntax: "stats([as], function)"
+    description: "Calculate multiple statistics"
+    category: aggregate
+    examples:
+      - query: "stats(function=[count(), avg(field=Duration)])"
+
+# ============================================================================
+# FILTERING FUNCTIONS
+# Used to filter events based on conditions
+# ============================================================================
+filtering:
+  in:
+    syntax: "in(field, values=[...])"
+    description: "Filter events where field matches one of the values"
+    category: filtering
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+      - name: values
+        type: array
+        required: true
+    examples:
+      - query: 'in(UserName, values=["admin", "root", "system"])'
+        description: "Match specific usernames"
+      - query: '!in(event_simpleName, values=["Heartbeat"])'
+        description: "Exclude heartbeat events (negated)"
+      - query: "in(RemotePort, values=[22, 3389, 445])"
+        description: "Match common ports"
+
+  regex:
+    syntax: "regex(field, regex=pattern, [flags])"
+    description: "Filter events using regular expression"
+    category: filtering
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+      - name: regex
+        type: string
+        required: true
+      - name: flags
+        type: string
+        optional: true
+        description: "i=case-insensitive, m=multiline"
+    examples:
+      - query: 'regex(CommandLine, regex=".*powershell.*", flags=i)'
+        description: "Case-insensitive powershell match"
+      - query: 'regex(FileName, regex="^cmd\\.exe$")'
+        description: "Exact filename match"
+
+  cidr:
+    syntax: "cidr(field, subnet)"
+    description: "Filter IP addresses by CIDR range"
+    category: filtering
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+      - name: subnet
+        type: string
+        required: true
+        description: "CIDR notation (e.g., 192.168.1.0/24)"
+    examples:
+      - query: 'cidr(RemoteIP, subnet="10.0.0.0/8")'
+        description: "Internal network IPs"
+      - query: '!cidr(RemoteIP, subnet="192.168.0.0/16")'
+        description: "Exclude private IPs"
+
+  ipLocation:
+    syntax: "ipLocation(field, [as])"
+    description: "Enrich IP with geolocation data"
+    category: filtering
+    examples:
+      - query: "ipLocation(RemoteIP)"
+        description: "Add geo fields"
+
+  test:
+    syntax: "test(expression)"
+    description: "Filter based on boolean expression"
+    category: filtering
+    examples:
+      - query: "test(BytesSent > 1000000)"
+        description: "Large transfers"
+      - query: "test(Duration > 60 AND Status != 200)"
+        description: "Long failed requests"
+
+  exists:
+    syntax: "exists(field)"
+    description: "Filter events where field exists"
+    category: filtering
+    examples:
+      - query: "exists(ErrorCode)"
+        description: "Events with errors"
+
+  empty:
+    syntax: "empty(field)"
+    description: "Filter events where field is empty"
+    category: filtering
+    examples:
+      - query: "empty(UserName)"
+        description: "Events without username"
+
+# ============================================================================
+# DATA MANIPULATION FUNCTIONS
+# Used to transform and modify event data
+# ============================================================================
+data_manipulation:
+  select:
+    syntax: "select(fields)"
+    description: "Select specific fields to include in output"
+    category: data_manipulation
+    parameters:
+      - name: fields
+        type: array
+        required: true
+    examples:
+      - query: "select([Timestamp, UserName, ComputerName])"
+        description: "Select specific fields"
+      - query: "select([*])"
+        description: "Select all fields"
+
+  rename:
+    syntax: "rename(field, [as])"
+    description: "Rename a field"
+    category: data_manipulation
+    examples:
+      - query: "rename(field=SourceIP, as=ClientIP)"
+
+  drop:
+    syntax: "drop(fields)"
+    description: "Remove fields from events"
+    category: data_manipulation
+    examples:
+      - query: "drop([Password, Token])"
+        description: "Remove sensitive fields"
+
+  eval:
+    syntax: "eval(expression)"
+    description: "Evaluate expression and create/modify fields"
+    category: data_manipulation
+    examples:
+      - query: "eval(duration_ms = Duration * 1000)"
+        description: "Calculate milliseconds"
+      - query: 'eval(status_type = if(Status < 400, "success", "error"))'
+        description: "Categorize status"
+      - query: "eval(_count = count())"
+        description: "Store count in field"
+
+  format:
+    syntax: "format(format, field, [as], [locale], [timezone])"
+    description: "Format field values"
+    category: data_manipulation
+    examples:
+      - query: 'format("%s - %s", field=[UserName, ComputerName], as=UserComputer)'
+        description: "Combine fields"
+
+  lower:
+    syntax: "lower(field, [as])"
+    description: "Convert field to lowercase"
+    category: data_manipulation
+    examples:
+      - query: "lower(field=UserName)"
+
+  upper:
+    syntax: "upper(field, [as])"
+    description: "Convert field to uppercase"
+    category: data_manipulation
+    examples:
+      - query: "upper(field=UserName)"
+
+  replace:
+    syntax: "replace(field, regex, [as], [replacement], [replaceInRawstring])"
+    description: "Replace text using regex"
+    category: data_manipulation
+    examples:
+      - query: 'replace(field=CommandLine, regex="password=\\S+", replacement="password=***")'
+        description: "Mask passwords"
+
+  split:
+    syntax: "split(field, [as], [by], [index])"
+    description: "Split field into array or extract element"
+    category: data_manipulation
+    examples:
+      - query: 'split(field=Path, by="/", index=1)'
+        description: "Extract path component"
+
+  concat:
+    syntax: "concat(fields)"
+    description: "Concatenate field values"
+    category: data_manipulation
+    examples:
+      - query: "concat([UserName, ComputerName])"
+
+# ============================================================================
+# SORTING AND LIMITING
+# ============================================================================
+sorting:
+  sort:
+    syntax: "sort(field, [limit], [order], [reverse], [type])"
+    description: "Sort events by field"
+    category: sorting
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+      - name: order
+        type: enum
+        values: [asc, desc]
+        optional: true
+      - name: limit
+        type: integer
+        optional: true
+      - name: type
+        type: enum
+        values: [string, number, any]
+        optional: true
+    examples:
+      - query: "sort(Timestamp, order=desc)"
+        description: "Most recent first"
+      - query: "sort(_count, order=desc, limit=10)"
+        description: "Top 10 by count"
+      - query: "sort(UserName, type=string)"
+        description: "Alphabetical sort"
+
+  head:
+    syntax: "head([limit])"
+    description: "Return first N events"
+    category: sorting
+    parameters:
+      - name: limit
+        type: integer
+        optional: true
+        default: 10
+    examples:
+      - query: "head(100)"
+        description: "First 100 events"
+
+  tail:
+    syntax: "tail([limit])"
+    description: "Return last N events"
+    category: sorting
+    parameters:
+      - name: limit
+        type: integer
+        optional: true
+        default: 10
+    examples:
+      - query: "tail(50)"
+        description: "Last 50 events"
+
+  sample:
+    syntax: "sample([size])"
+    description: "Random sample of events"
+    category: sorting
+    examples:
+      - query: "sample(100)"
+        description: "Random 100 events"
+
+  dedup:
+    syntax: "dedup(fields, [sortby])"
+    description: "Remove duplicate events"
+    category: sorting
+    examples:
+      - query: "dedup(UserName)"
+        description: "One event per user"
+      - query: "dedup([UserName, ComputerName])"
+        description: "Unique user-computer pairs"
+
+# ============================================================================
+# SECURITY FUNCTIONS
+# Used for security analysis and IOC lookup
+# ============================================================================
+security:
+  ioc_lookup:
+    syntax: "ioc:lookup(field, type, [confidenceThreshold], [include], [prefix], [strict])"
+    description: "Check field values against CrowdStrike threat intelligence IOC database"
+    category: security
+    parameters:
+      - name: field
+        type: field_name
+        required: true
+        description: "Field containing the value to check"
+      - name: type
+        type: enum
+        values:
+          - ip_address
+          - domain
+          - sha256
+          - md5
+          - sha1
+          - url
+        required: true
+        description: "Type of IOC to lookup"
+      - name: confidenceThreshold
+        type: integer
+        optional: true
+        default: 50
+        description: "Minimum confidence score (0-100)"
+      - name: strict
+        type: boolean
+        optional: true
+        description: "Require exact match"
+    examples:
+      - query: 'ioc:lookup(field=RemoteIP, type="ip_address")'
+        description: "Check IPs against threat intel"
+      - query: 'ioc:lookup(field=SHA256HashData, type="sha256", confidenceThreshold=70)'
+        description: "High confidence hash lookup"
+      - query: 'ioc:lookup(field=DomainName, type="domain")'
+        description: "Check domains"
+    output_fields:
+      - "ioc.indicator.malicious"
+      - "ioc.indicator.type"
+      - "ioc.indicator.confidence"
+      - "ioc.indicator.labels"
+
+  hashMatch:
+    syntax: "hashMatch([bits], [field], [hash], input, salt)"
+    description: "Match against hashed values for secure comparison"
+    category: security
+    examples:
+      - query: "hashMatch(input=UserName, salt=mysalt)"
+
+  hashRewrite:
+    syntax: "hashRewrite([as], [bits], field, [hash], [replaceInRawstring], salt)"
+    description: "Convert sensitive values to secure hashes"
+    category: security
+    examples:
+      - query: "hashRewrite(field=Email, salt=mysalt, as=EmailHash)"
+        description: "Hash email addresses"
+
+# ============================================================================
+# TIME AND DATE FUNCTIONS
+# ============================================================================
+time:
+  formatTime:
+    syntax: "formatTime(format, [as], field, [locale], [timezone])"
+    description: "Format timestamp field"
+    category: time
+    examples:
+      - query: 'formatTime("%Y-%m-%d %H:%M:%S", field=Timestamp, timezone="UTC")'
+
+  parseTimestamp:
+    syntax: "parseTimestamp(field, [format], [timezone])"
+    description: "Parse string to timestamp"
+    category: time
+    examples:
+      - query: 'parseTimestamp(field=DateString, format="%Y-%m-%d")'
+
+  now:
+    syntax: "now()"
+    description: "Current timestamp"
+    category: time
+    examples:
+      - query: "eval(age = now() - Timestamp)"
+        description: "Calculate event age"
+
+  timechart:
+    syntax: "timechart([function], [span])"
+    description: "Create time-based chart data"
+    category: time
+    examples:
+      - query: "timechart(function=count(), span=1h)"
+        description: "Hourly event count"
+
+# ============================================================================
+# PARSING FUNCTIONS
+# ============================================================================
+parsing:
+  kvParse:
+    syntax: "kvParse([field], [separator])"
+    description: "Parse key-value pairs"
+    category: parsing
+    examples:
+      - query: "kvParse()"
+        description: "Parse default format"
+
+  json:
+    syntax: "parseJson([field])"
+    description: "Parse JSON field"
+    category: parsing
+    examples:
+      - query: "parseJson(field=Payload)"
+
+  xml:
+    syntax: "parseXml(field)"
+    description: "Parse XML field"
+    category: parsing
+
+  csv:
+    syntax: "parseCsv(field, [columns])"
+    description: "Parse CSV data"
+    category: parsing
+
+# ============================================================================
+# JOIN AND CORRELATION
+# ============================================================================
+correlation:
+  join:
+    syntax: "join(query, field, [include], [key], [mode])"
+    description: "Join with results from another query"
+    category: correlation
+    examples:
+      - query: "join({UserName=* | select(UserName)}, field=UserName)"
+
+  selfJoin:
+    syntax: "selfJoin(field, [prefilter], [where])"
+    description: "Join events with themselves"
+    category: correlation
+
+  correlate:
+    syntax: "correlate(query, [root], [sequence], [sequenceBy], [within])"
+    description: "Correlate events in a sequence"
+    category: correlation
+    examples:
+      - query: |
+          correlate(
+            sequence=[
+              {#event_simpleName=ProcessRollup2 | FileName=cmd.exe},
+              {#event_simpleName=NetworkConnectIP4}
+            ],
+            sequenceBy=ProcessId,
+            within=5m
+          )
+        description: "Find process followed by network connection"
+
+# ============================================================================
+# VISUALIZATION
+# ============================================================================
+visualization:
+  table:
+    syntax: "table(fields, [limit], [sortby])"
+    description: "Display as table"
+    category: visualization
+    examples:
+      - query: "table([Timestamp, UserName, Action])"
+
+  sankey:
+    syntax: "sankey(source, target, [weight])"
+    description: "Create Sankey diagram data"
+    category: visualization
+    examples:
+      - query: "sankey(source=SourceIP, target=DestIP, weight=BytesSent)"
+
+  worldMap:
+    syntax: "worldMap([ip], [lat], [lon], [magnitude])"
+    description: "Create world map data"
+    category: visualization
+
+  piechart:
+    syntax: "piechart(field)"
+    description: "Create pie chart data"
+    category: visualization
+
+  barchart:
+    syntax: "barchart(field)"
+    description: "Create bar chart data"
+    category: visualization

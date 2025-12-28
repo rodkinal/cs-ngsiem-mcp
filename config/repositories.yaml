@@ -1,0 +1,52 @@
+# ============================================================
+# NGSIEM Repositories Configuration
+# ============================================================
+# This file defines the repositories available for search.
+# The LLM will use this information to choose the appropriate repository.
+#
+# SECURITY: This file should NOT be uploaded to the Git repository.
+# ============================================================
+
+repositories:
+  # ----------------------------------------------------------
+  # Main Falcon Sensor Repository
+  # ----------------------------------------------------------
+  - name: "base_sensor"
+    description: |
+      Telemetry events from Falcon sensors installed on endpoints.
+      Contains information on processes, files, network, DNS, and system activity.
+    data_types:
+      - "ProcessRollup2 - Process Execution"
+      - "NetworkConnectIP4 - IPv4 Network Connections"
+      - "DnsRequest - DNS Queries"
+      - "FileWritten - File Writes"
+      - "UserLogon - User Logins"
+      - "DNS requests"
+    use_cases:
+      - "Threat hunting for suspicious processes"
+      - "Analysis of malicious network connections"
+      - "Investigation of compromised hosts"
+      - "Detection of persistence and lateral movement"
+    retention: "90 days"
+    default: true
+
+  # ----------------------------------------------------------
+  # Zscaler Events Repository
+  # ----------------------------------------------------------
+  - name: "zscaler"
+    description: |
+      Zscaler Internet Access logs providing visibility into web traffic,
+      cloud firewall activity, DNS resolutions, and threat protection.
+    data_types:
+      - "Web browsing"
+      - "WebLogs - HTTP/HTTPS Proxy Activity"
+      - "FirewallLogs - L3/L4 Network Traffic"
+      - "DNSLogs - DNS Queries and Responses"
+      - "TunnelLogs - GRE/IPSec Tunnel Health"
+    use_cases:
+      - "Command & Control (C2) beaconing detection"
+      - "Data Loss Prevention (DLP) incident analysis"
+      - "Shadow IT and unauthorized app discovery"
+      - "Malware and phishing investigation"
+    retention: "90 days"
+    default: false
