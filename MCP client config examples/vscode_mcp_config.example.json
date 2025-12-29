@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "cs-ngsiem-mcp": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer <YOUR_AUTH_TOKEN>"
+      }
+    }
+  }
+}

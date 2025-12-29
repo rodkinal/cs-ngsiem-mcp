@@ -101,7 +101,9 @@ graph TD
 
 For production deployments or remote access, the server supports the **MCP 2025-11-25 Streamable HTTP** transport.
 
-📄 **[Read the Full Architecture & Feature Guide](SERVER_ARCHITECTURE.md)** for detailed diagrams and flows.
+📄 **[Read the Full Architecture & Feature Guide](Documentation/SERVER_ARCHITECTURE.md)** for detailed diagrams and flows.
+
+📄 **[Read the Full Query Validation Architecture](Documentation/QUERY_VALIDATION_ARCHITECTURE.md)** for detailed diagrams and flows.
 
 ### Quick Start (HTTP)
 
@@ -143,13 +145,13 @@ Update your `claude_desktop_config.json`:
 }
 ```
 
-See [SERVER_ARCHITECTURE.md](SERVER_ARCHITECTURE.md) for detailed configuration options.
+See [SERVER_ARCHITECTURE.md](Documentation/SERVER_ARCHITECTURE.md) for detailed configuration options.
 
 ## Architecture
 
 For a detailed breakdown of the system architecture, request flows, and component diagrams, please refer to:
 
-👉 **[SERVER_ARCHITECTURE.md](SERVER_ARCHITECTURE.md)**
+👉 **[SERVER_ARCHITECTURE.md](Documentation/SERVER_ARCHITECTURE.md)**
 
 
 
