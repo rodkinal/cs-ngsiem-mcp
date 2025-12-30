@@ -22,6 +22,10 @@ repositories:
       - "FileWritten - File Writes"
       - "UserLogon - User Logins"
       - "DNS requests"
+      - "CommandLine - Command Line executed by users"
+      - "CommandHistory - Command history executed by users"
+      - "PeFileWritte - Executable written into disk"
+      - "UserLogon - Logon user in the machine"
     use_cases:
       - "Threat hunting for suspicious processes"
       - "Analysis of malicious network connections"

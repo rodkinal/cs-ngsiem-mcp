@@ -3,8 +3,6 @@
 # ============================================================
 # This file defines the repositories available for search.
 # The LLM will use this information to choose the appropriate repository.
-#
-# SECURITY: This file should NOT be uploaded to the Git repository.
 # ============================================================
 
 repositories:
