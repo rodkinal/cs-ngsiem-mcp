@@ -109,12 +109,16 @@ For production deployments or remote access, the server supports the **MCP 2025-
     Add `MCP_API_KEY` to your `.env` file (generated automatically if missing, but better to set it).
 
 2.  **Start the Server**:
-    Use the provided script which handles environment loading and logging:
+    Use the provided script which handles environment loading and logging on Mac or Linux:
     ```bash
     ./start_http_server.sh
     ```
+    or on Windows:
+    ```powershell
+    ./start_http_server.ps1
+    ```
 
-3.  **Verify Connection**:
+3.  **Verify Connection (Optional)**:
     Use the Inspector script to test the server:
     ```bash
     ./start_http_inspector.sh
@@ -143,7 +147,6 @@ Update your `claude_desktop_config.json`:
 }
 ```
 
-See [SERVER_ARCHITECTURE.md](Documentation/SERVER_ARCHITECTURE.md) for detailed configuration options.
 
 ### VS Code Integration
 
@@ -164,6 +167,9 @@ Update your MCP settings in VS Code:
   }
 }
 ```
+
+See [SERVER_ARCHITECTURE.md](Documentation/SERVER_ARCHITECTURE.md) for detailed configuration options.
+
 
 ## Architecture
 
