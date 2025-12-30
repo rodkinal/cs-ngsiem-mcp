@@ -145,6 +145,26 @@ Update your `claude_desktop_config.json`:
 
 See [SERVER_ARCHITECTURE.md](Documentation/SERVER_ARCHITECTURE.md) for detailed configuration options.
 
+### VS Code Integration
+
+For VS Code users (using extensions like Cline or Roo Code), the configuration uses the native HTTP transport directly without the need for a proxy.
+
+Update your MCP settings in VS Code:
+
+```json
+{
+  "servers": {
+    "cs-ngsiem-mcp": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer <YOUR_AUTH_TOKEN>"
+      }
+    }
+  }
+}
+```
+
 ## Architecture
 
 For a detailed breakdown of the system architecture, request flows, and component diagrams, please refer to:
