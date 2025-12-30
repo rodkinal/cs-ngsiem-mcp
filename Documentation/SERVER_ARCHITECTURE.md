@@ -121,14 +121,6 @@ flowchart TD
 
 ## 4. Configuration & Deployment
 
-### Server Scripts
-
-We provide dedicated scripts to manage the server lifecycle:
-
-| Script | Purpose | Description |
-|--------|---------|-------------|
-| `start_http_server.sh` | **Production Server** | Starts Uvicorn with logging, env loading, and graceful shutdown. |
-| `start_http_inspector.sh` | **Development/Test** | Launches MCP Inspector to test the running HTTP server. |
 
 ### Logging Configuration
 
@@ -145,26 +137,6 @@ The server maintains two separate log streams for easier debugging:
     - API interaction errors.
     - Produced by the Python application (`logging`).
 
-### Client Configuration (Claude Desktop)
-
-To connect Claude Desktop to this HTTP server, use the `mcp-remote` proxy to handle authentication:
-
-```json
-{
-  "mcpServers": {
-    "ngsiem-http": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "http://localhost:8080/mcp",
-        "--header",
-        "Authorization: Bearer <YOUR_MCP_API_KEY>"
-      ]
-    }
-  }
-}
-```
 
 ## 5. Query Validation Pipeline
 
