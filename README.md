@@ -6,31 +6,6 @@ A Model Context Protocol (MCP) server that provides programmatic access to Crowd
 
 This MCP server acts as an intelligent bridge between LLMs and CrowdStrike NGSIEM, designed to prevent hallucinations and enforce query integrity. It exposes NGSIEM functionality through **ten specialized tools** that prioritize validation and context awareness.
 
-### Key Capabilities
-
-1. **Intelligent Query Validation**:
-   Before any search is executed, the **Query Validator** analyzes the syntax to catch common errors. It checks for balanced parentheses, valid operators, and correct function usage, ensuring that only syntactically correct queries are sent to the API.
-
-2. **Dynamic Schema Discovery (Field Validation)**:
-   To prevent the LLM from hallucinating non-existent fields, the server provides the `get_repo_fieldset` tool. This tool dynamically downloads the **live schema** (all valid fields) for a specific repository from your environment. The LLM is instructed to *always* consult this schema before constructing a query.
-
-3. **Context-Aware Repository Management**:
-   The server does not guess where logs are securely stored. You explicitly define your log sources in `config/repositories.yaml`. This configuration file tells the LLM exactly **which repository** contains what data (e.g., "base_sensor" repository for process events, "squid" repository for proxy logs), allowing it to intelligently select the right data source for each question.
-
-```mermaid
-graph TD
-    A[LLM Query] --> B{Schema Check}
-    B -->|get_repo_fieldset| C[Download Live Fields]
-    C --> D[Construct Query]
-    D --> E{Syntax Check}
-    E -->|validate_query| F[Execute Search]
-    
-    style A fill:#e1f5ff
-    style B fill:#fff3e0
-    style E fill:#fff3e0
-    style F fill:#e8f5e9
-```
-
 ## Quick Start
 
 ### Prerequisites
@@ -95,7 +70,30 @@ graph TD
 
    > **Tip**: You can use the `get_repo_fieldset` tool to discover available fields in any configured repository.
 
+## Key Capabilities
 
+1. **Intelligent Query Validation**:
+   Before any search is executed, the **Query Validator** analyzes the syntax to catch common errors. It checks for balanced parentheses, valid operators, and correct function usage, ensuring that only syntactically correct queries are sent to the API.
+
+2. **Dynamic Schema Discovery (Field Validation)**:
+   To prevent the LLM from hallucinating non-existent fields, the server provides the `get_repo_fieldset` tool. This tool dynamically downloads the **live schema** (all valid fields) for a specific repository from your environment. The LLM is instructed to *always* consult this schema before constructing a query.
+
+3. **Context-Aware Repository Management**:
+   The server does not guess where logs are securely stored. You explicitly define your log sources in `config/repositories.yaml`. This configuration file tells the LLM exactly **which repository** contains what data (e.g., "base_sensor" repository for process events, "squid" repository for proxy logs), allowing it to intelligently select the right data source for each question.
+
+```mermaid
+graph TD
+    A[LLM Query] --> B{Schema Check}
+    B -->|get_repo_fieldset| C[Download Live Fields]
+    C --> D[Construct Query]
+    D --> E{Syntax Check}
+    E -->|validate_query| F[Execute Search]
+    
+    style A fill:#e1f5ff
+    style B fill:#fff3e0
+    style E fill:#fff3e0
+    style F fill:#e8f5e9
+```
 
 ## HTTP Server Mode (FastAPI + SSE)
 
